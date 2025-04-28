@@ -7,8 +7,10 @@ from logging import Logger
 def build_format(color):
     reset = "\x1b[0m"
     underline = "\x1b[3m"
-    return f"{color}[%(asctime)s] %(levelname)s:{reset} %(message)s " + \
-           f"{underline}(%(filename)s:%(lineno)d:%(name)s){reset}"
+    return (
+        f"{color}[%(asctime)s] %(levelname)s:{reset} %(message)s "
+        + f"{underline}(%(filename)s:%(lineno)d:%(name)s){reset}"
+    )
 
 
 class CustomFormatter(logging.Formatter):
@@ -58,7 +60,8 @@ class AsyncLoopWrapper:
         async def wait_for_tasks():
             current_task = asyncio.current_task(cls._loop)
             tasks = [
-                task for task in asyncio.all_tasks(cls._loop)
+                task
+                for task in asyncio.all_tasks(cls._loop)
                 if not task.done() and task is not current_task
             ]
             cls._logger.info(f"Waiting for {len(tasks)} tasks to finish")

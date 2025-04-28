@@ -21,16 +21,21 @@ import torch
 
 from lmcache.config import LMCacheEngineMetadata
 from lmcache.experimental.config import LMCacheEngineConfig
-from lmcache.experimental.memory_management import (MemoryAllocatorInterface,
-                                                    MemoryFormat, MemoryObj,
-                                                    MemoryObjMetadata,
-                                                    TensorMemoryObj)
-from lmcache.experimental.storage_backend.abstract_backend import \
-    StorageBackendInterface
+from lmcache.experimental.memory_management import (
+    MemoryAllocatorInterface,
+    MemoryFormat,
+    MemoryObj,
+    MemoryObjMetadata,
+    TensorMemoryObj,
+)
+from lmcache.experimental.storage_backend.abstract_backend import (
+    StorageBackendInterface,
+)
 from lmcache.experimental.storage_backend.connector.nixl_connector_v2 import (
-    NixlChannel, NixlObserverInterface)
-from lmcache.experimental.storage_backend.connector.nixl_utils import \
-    NixlConfig
+    NixlChannel,
+    NixlObserverInterface,
+)
+from lmcache.experimental.storage_backend.connector.nixl_utils import NixlConfig
 from lmcache.logging import init_logger
 from lmcache.utils import CacheEngineKey, _lmcache_nvtx_annotate
 
@@ -52,8 +57,10 @@ class RecvObjPool:
 
         self._enable_gc = enable_gc
         if not self._enable_gc:
-            logger.warning("GC for receiver is disabled, may lead to memory "
-                           "leak in non-testing environment")
+            logger.warning(
+                "GC for receiver is disabled, may lead to memory "
+                "leak in non-testing environment"
+            )
 
         # Debug information
         self._dbg_shallow_add = 0
@@ -83,12 +90,10 @@ class RecvObjPool:
         logger.warning("  - Num get: %d", self._dbg_num_get)
         logger.warning("  - Num success get: %d", self._dbg_num_success_get)
         logger.warning("  - Num contains: %d", self._dbg_num_contains)
-        logger.warning("  - Num success contains: %d",
-                       self._dbg_num_success_contains)
+        logger.warning("  - Num success contains: %d", self._dbg_num_success_contains)
         logger.warning("  - Current num_objs: %d", len(self._data))
         tot_size = sum([self._data[key].get_size() for key in self._data])
-        logger.warning("  - Total size: %.2f GB",
-                       tot_size / 1024 / 1024 / 1024)
+        logger.warning("  - Total size: %.2f GB", tot_size / 1024 / 1024 / 1024)
         logger.warning("  - Number of GC: %d", self._dbg_num_gc)
 
     def _gc(self):
@@ -107,15 +112,19 @@ class RecvObjPool:
             self._data.pop(key)
             self._cnt.pop(key)
         ed = time.perf_counter()
-        logger.warning("GC in %.4f msec, released %.2f GB memory",
-                       (ed - st) * 1000, freed_size / 1024 / 1024 / 1024)
+        logger.warning(
+            "GC in %.4f msec, released %.2f GB memory",
+            (ed - st) * 1000,
+            freed_size / 1024 / 1024 / 1024,
+        )
 
     def add(self, key: CacheEngineKey, obj: MemoryObj):
         with self.lock:
             # TODO: Get rid of this
             self._recent_added_keys.append(key)
-            self._recent_added_keys = \
-                    self._recent_added_keys[-self._recent_add_threshold:]
+            self._recent_added_keys = self._recent_added_keys[
+                -self._recent_add_threshold :
+            ]
 
             if key in self._data:
                 self._cnt[key] += 1
@@ -176,7 +185,7 @@ class RecvObjPool:
 
 class BasicNixlObserver(NixlObserverInterface):
     """
-    Basic implementation of the NixlObserverInterface to handle 
+    Basic implementation of the NixlObserverInterface to handle
     events from NixlChannel.
     """
 
@@ -187,29 +196,26 @@ class BasicNixlObserver(NixlObserverInterface):
         self.obj_pool = obj_pool
 
     @_lmcache_nvtx_annotate
-    def __call__(self,
-                 keys: list[CacheEngineKey],
-                 objs: list[MemoryObj],
-                 is_view: bool = True):
+    def __call__(
+        self, keys: list[CacheEngineKey], objs: list[MemoryObj], is_view: bool = True
+    ):
         """Blocking function to process the received objects
-        
+
         Args:
           keys: the CacheEngineKeys
           objs: the list of MemoryObj
-          is_view: whether the memory objects are the view of the underlying 
-            transfer buffer  (i.e., whether it will be overwrite by next 
+          is_view: whether the memory objects are the view of the underlying
+            transfer buffer  (i.e., whether it will be overwrite by next
             transfer)
         """
         clone_time = 0.0
         add_time = 0.0
         for key, value in zip(keys, objs):
-            assert value.tensor is not None, \
-                    "The tensor in the MemoryObj is None."
+            assert value.tensor is not None, "The tensor in the MemoryObj is None."
             if is_view:
-                #self.obj_pool.add(key, value)
+                # self.obj_pool.add(key, value)
                 st = time.perf_counter()
-                copied_obj = TensorMemoryObj(value.tensor.clone(),
-                                             value.metadata)
+                copied_obj = TensorMemoryObj(value.tensor.clone(), value.metadata)
                 ed = time.perf_counter()
                 self.obj_pool.add(key, copied_obj)
                 ed2 = time.perf_counter()
@@ -219,15 +225,18 @@ class BasicNixlObserver(NixlObserverInterface):
                 self.obj_pool.add(key, value)
         logger.debug(
             "Nixl Observer: clone time: %.4f msec, "
-            "Add time: %.4f msec for %d objects", clone_time, add_time,
-            len(keys))
+            "Add time: %.4f msec for %d objects",
+            clone_time,
+            add_time,
+            len(keys),
+        )
 
 
 class NixlBackend(StorageBackendInterface):
     """
     Implementation of the StorageBackendInterface for Nixl.
 
-    Currently, the put is synchronized and blocking, to simplify the 
+    Currently, the put is synchronized and blocking, to simplify the
     implementation.
 
     At the sender side, it will never save anything but directly write the data
@@ -243,15 +252,14 @@ class NixlBackend(StorageBackendInterface):
         """
         super().__init__(dst_device=nixl_config.buffer_device)
         self._obj_pool = RecvObjPool(nixl_config.enable_gc)
-        #self._data: dict[CacheEngineKey, MemoryObj] = {}
-        #self._data_lock = threading.Lock()
+        # self._data: dict[CacheEngineKey, MemoryObj] = {}
+        # self._data_lock = threading.Lock()
 
         self._nixl_channel = NixlChannel(nixl_config)
 
         self._nixl_observer = BasicNixlObserver(self._obj_pool)
 
-        self._nixl_channel.register_receive_observer(
-            observer=self._nixl_observer)
+        self._nixl_channel.register_receive_observer(observer=self._nixl_observer)
 
         self._registered_keys: list[CacheEngineKey] = []
         self._registered_metadatas: list[MemoryObjMetadata] = []
@@ -260,7 +268,7 @@ class NixlBackend(StorageBackendInterface):
     def contains(self, key: CacheEngineKey) -> bool:
         """
         Check whether key is in the storage backend.
-        
+
         :param key: The key to check
         :return: True if the key exists, False otherwise
         """
@@ -269,7 +277,7 @@ class NixlBackend(StorageBackendInterface):
     def exists_in_put_tasks(self, key: CacheEngineKey) -> bool:
         """
         Check whether key is in the ongoing submit_put_task tasks.
-        
+
         :param key: The key to check
         :return: True if the key exists in put tasks, False otherwise
         """
@@ -301,56 +309,55 @@ class NixlBackend(StorageBackendInterface):
 
         This will be seen as "adding a new payload" to the backend.
         """
-        assert self._registered_metadatas[self._num_payload_added].shape \
-            == shape, \
-            "The shape of the allocated object is not equal to the shape of " \
+        assert self._registered_metadatas[self._num_payload_added].shape == shape, (
+            "The shape of the allocated object is not equal to the shape of "
             "the registered metadata."
+        )
 
-        assert self._registered_metadatas[self._num_payload_added].dtype \
-            == dtype, \
-            "The dtype of the allocated object is not equal to the dtype of " \
+        assert self._registered_metadatas[self._num_payload_added].dtype == dtype, (
+            "The dtype of the allocated object is not equal to the dtype of "
             "the registered metadata."
+        )
 
-        assert self._registered_metadatas[self._num_payload_added].fmt == fmt, \
-            "The fmt of the allocated object is not equal to the fmt of " \
+        assert self._registered_metadatas[self._num_payload_added].fmt == fmt, (
+            "The fmt of the allocated object is not equal to the fmt of "
             "the registered metadata."
+        )
 
         self._num_payload_added += 1
 
-        ret = self._nixl_channel.allocate_for_send(shape=shape,
-                                                   dtype=dtype,
-                                                   fmt=fmt)
-        assert ret is not None, \
-            "Failed to allocate zero-copy buffer from nixl_channel"
+        ret = self._nixl_channel.allocate_for_send(shape=shape, dtype=dtype, fmt=fmt)
+        assert ret is not None, "Failed to allocate zero-copy buffer from nixl_channel"
         return ret
 
     def flush_put_tasks(self) -> None:
         """
-        Flush the registered tasks 
+        Flush the registered tasks
         """
-        assert len(self._registered_keys) > 0, \
-            "The backend has not registered put tasks."
-        assert self._num_payload_added == len(self._registered_keys), \
-            "The number of payloads added is not equal to the number of" \
+        assert (
+            len(self._registered_keys) > 0
+        ), "The backend has not registered put tasks."
+        assert self._num_payload_added == len(self._registered_keys), (
+            "The number of payloads added is not equal to the number of"
             "registered keys."
+        )
 
         self._nixl_channel.finish_send()
         self._registered_keys = []
         self._registered_metadatas = []
         self._num_payload_added = 0
 
-    def submit_put_task(self, key: CacheEngineKey,
-                        obj: MemoryObj) -> Optional[Future]:
+    def submit_put_task(self, key: CacheEngineKey, obj: MemoryObj) -> Optional[Future]:
         """
         Put the MemoryObj into the storage backend and send it to the receiver
         in a blocking way.
 
         :param key: The key of the MemoryObj.
         :param obj: The MemoryObj to be stored.
-        
+
         :return: a future object
 
-        :note: Right now, the 'key' is not used and it assumes that the memory 
+        :note: Right now, the 'key' is not used and it assumes that the memory
         object has the same order as the keys passed in `register_put_tasks`.
         """
         raise NotImplementedError
@@ -368,9 +375,9 @@ class NixlBackend(StorageBackendInterface):
     def get_blocking(self, key: CacheEngineKey) -> Optional[MemoryObj]:
         """
         A blocking function to get the kv cache from the storage backend.
-        
+
         :param key: The key of the MemoryObj.
-        
+
         :return: MemoryObj. None if the key does not exist.
         """
         return self._obj_pool.get(key)
@@ -396,14 +403,15 @@ class NixlBackend(StorageBackendInterface):
         return self._nixl_channel.get_allocator()
 
     @staticmethod
-    def CreateNixlBackend(config: LMCacheEngineConfig,
-                          metadata: LMCacheEngineMetadata) -> "NixlBackend":
+    def CreateNixlBackend(
+        config: LMCacheEngineConfig, metadata: LMCacheEngineMetadata
+    ) -> "NixlBackend":
         """
         Create a Nixl backend with the given configuration.
 
         :param nixl_config: The Nixl configuration.
         :param dst_device: The device where the data is stored.
-        
+
         :return: A NixlBackend instance.
         """
         # Create the Nixl config

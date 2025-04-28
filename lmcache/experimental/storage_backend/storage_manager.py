@@ -21,17 +21,20 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import torch
 
 from lmcache.config import LMCacheEngineMetadata
-from lmcache.experimental.cache_controller.message import (KVAdmitMsg,
-                                                           KVEvictMsg)
+from lmcache.experimental.cache_controller.message import KVAdmitMsg, KVEvictMsg
 from lmcache.experimental.config import LMCacheEngineConfig
 from lmcache.experimental.lookup_server import LookupServerInterface
-from lmcache.experimental.memory_management import (MemoryAllocatorInterface,
-                                                    MemoryFormat, MemoryObj,
-                                                    MemoryObjMetadata,
-                                                    MixedMemoryAllocator)
+from lmcache.experimental.memory_management import (
+    MemoryAllocatorInterface,
+    MemoryFormat,
+    MemoryObj,
+    MemoryObjMetadata,
+    MixedMemoryAllocator,
+)
 from lmcache.experimental.storage_backend import CreateStorageBackends
-from lmcache.experimental.storage_backend.abstract_backend import \
-    StorageBackendInterface
+from lmcache.experimental.storage_backend.abstract_backend import (
+    StorageBackendInterface,
+)
 from lmcache.logging import init_logger
 from lmcache.utils import CacheEngineKey, _lmcache_nvtx_annotate
 
@@ -47,12 +50,14 @@ class StorageManager:
     The StorageManager is responsible for managing the storage backends.
     """
 
-    def __init__(self,
-                 config: LMCacheEngineConfig,
-                 metadata: LMCacheEngineMetadata,
-                 allocator: MemoryAllocatorInterface,
-                 lmcache_worker: Optional["LMCacheWorker"] = None,
-                 lookup_server: Optional[LookupServerInterface] = None):
+    def __init__(
+        self,
+        config: LMCacheEngineConfig,
+        metadata: LMCacheEngineMetadata,
+        allocator: MemoryAllocatorInterface,
+        lmcache_worker: Optional["LMCacheWorker"] = None,
+        lookup_server: Optional[LookupServerInterface] = None,
+    ):
         self.memory_allocator = allocator
         self.hot_cache: OrderedDict[CacheEngineKey, MemoryObj] = OrderedDict()
         self.use_hot = config.local_cpu
@@ -61,16 +66,21 @@ class StorageManager:
         self.thread = threading.Thread(target=self.loop.run_forever)
         self.thread.start()
 
-        #TODO: remove hardcode
+        # TODO: remove hardcode
         dst_device = "cuda"
-        self.storage_backends: OrderedDict[str, StorageBackendInterface] =\
+        self.storage_backends: OrderedDict[str, StorageBackendInterface] = (
             CreateStorageBackends(
-                config, metadata,
-                self.loop, allocator, dst_device,
-                lmcache_worker, lookup_server)
+                config,
+                metadata,
+                self.loop,
+                allocator,
+                dst_device,
+                lmcache_worker,
+                lookup_server,
+            )
+        )
         self.prefetch_tasks: Dict[CacheEngineKey, Future] = {}
-        self.put_tasks: Dict[str, Dict[CacheEngineKey, Tuple[Future,
-                                                             MemoryObj]]] = {}
+        self.put_tasks: Dict[str, Dict[CacheEngineKey, Tuple[Future, MemoryObj]]] = {}
 
         for backend_name in self.storage_backends.keys():
             self.put_tasks[backend_name] = {}
@@ -108,8 +118,7 @@ class StorageManager:
 
             # If the ref_count > 1, we cannot evict it as the hot cache
             # might be used as buffers by other storage backends
-            if self.memory_allocator.get_ref_count(
-                    self.hot_cache[evict_key]) > 1:
+            if self.memory_allocator.get_ref_count(self.hot_cache[evict_key]) > 1:
                 continue
             evict_keys.append(evict_key)
             self.memory_allocator.ref_count_down(self.hot_cache[evict_key])
@@ -126,8 +135,10 @@ class StorageManager:
             self.hot_cache.pop(evict_key)
             if self.lmcache_worker is not None:
                 self.lmcache_worker.put_msg(
-                    KVEvictMsg(self.instance_id, self.worker_id,
-                               evict_key.chunk_hash, "cpu"))
+                    KVEvictMsg(
+                        self.instance_id, self.worker_id, evict_key.chunk_hash, "cpu"
+                    )
+                )
         if self.lookup_server is not None:
             self.lookup_server.batched_remove(evict_keys)
 
@@ -153,7 +164,7 @@ class StorageManager:
     ) -> None:
         """
         Non-blocking function to put the memory object into the storages.
-        Do not store if the same object is being stored (handled here by 
+        Do not store if the same object is being stored (handled here by
         storage manager) or has been stored (handled by storage backend).
         """
         self.manager_lock.acquire()
@@ -171,8 +182,8 @@ class StorageManager:
             self.hot_cache[key] = memory_obj
             if self.lmcache_worker is not None and not has_stored:
                 self.lmcache_worker.put_msg(
-                    KVAdmitMsg(self.instance_id, self.worker_id,
-                               key.chunk_hash, "cpu"))
+                    KVAdmitMsg(self.instance_id, self.worker_id, key.chunk_hash, "cpu")
+                )
             self.memory_allocator.ref_count_up(memory_obj)
 
         # TODO(Jiayi): currently, the entire put task will be cancelled
@@ -185,7 +196,7 @@ class StorageManager:
                 return
         self.manager_lock.release()
 
-        #ever_put = False
+        # ever_put = False
         for backend_name, backend in self.storage_backends.items():
             put_task = backend.submit_put_task(key, memory_obj)
 
@@ -227,19 +238,18 @@ class StorageManager:
             cpu_memory_obj = self.memory_allocator.allocate(
                 memory_obj.get_shape(),
                 memory_obj.get_dtype(),
-                fmt=memory_obj.get_memory_format())
+                fmt=memory_obj.get_memory_format(),
+            )
 
             if cpu_memory_obj is None:
-                logger.warning(
-                    "Memory allocation failed in cachegen deserializer")
+                logger.warning("Memory allocation failed in cachegen deserializer")
                 return None
 
             # Copy the tensor to the cpu memory object
             assert cpu_memory_obj.tensor is not None
             self.stream.wait_stream(torch.cuda.default_stream())
             with torch.cuda.stream(self.stream):
-                cpu_memory_obj.tensor.copy_(memory_obj.tensor,
-                                            non_blocking=True)
+                cpu_memory_obj.tensor.copy_(memory_obj.tensor, non_blocking=True)
             memory_obj.tensor.record_stream(self.stream)
 
             # Update the hot cache
@@ -251,8 +261,8 @@ class StorageManager:
             # Push kv msg
             if self.lmcache_worker is not None:
                 self.lmcache_worker.put_msg(
-                    KVAdmitMsg(self.instance_id, self.worker_id,
-                               key.chunk_hash, "cpu"))
+                    KVAdmitMsg(self.instance_id, self.worker_id, key.chunk_hash, "cpu")
+                )
 
             logger.debug("Updated hot cache!")
         else:
@@ -265,8 +275,10 @@ class StorageManager:
                 # Push kv msg
                 if self.lmcache_worker is not None:
                     self.lmcache_worker.put_msg(
-                        KVAdmitMsg(self.instance_id, self.worker_id,
-                                   key.chunk_hash, "cpu"))
+                        KVAdmitMsg(
+                            self.instance_id, self.worker_id, key.chunk_hash, "cpu"
+                        )
+                    )
             else:
                 self.manager_lock.release()
 
@@ -283,10 +295,10 @@ class StorageManager:
         # Here, it is assumed all prefetch tasks load the memoryobj to
         # hot cache (pinned cpu buffer)
         if prefetch_task is not None:
-            assert self.use_hot is True,\
-                "CPU cache must be enabled for prefetching"
-            logger.debug("Waiting for prefetching result. "
-                         "Optimally, this should not happen.")
+            assert self.use_hot is True, "CPU cache must be enabled for prefetching"
+            logger.debug(
+                "Waiting for prefetching result. " "Optimally, this should not happen."
+            )
             # Calling result() twice (already once in callback) will have
             # no effect
             # Tune the timeout for better performance
@@ -306,7 +318,7 @@ class StorageManager:
         # Search all backends for blocking get
         for backend_name, backend in self.storage_backends.items():
             # Avoid read-write contention
-            #if key in self.put_tasks[backend_name]:
+            # if key in self.put_tasks[backend_name]:
             #    continue
 
             # NOTE(Jiayi): bypass the allocator for now
@@ -328,8 +340,7 @@ class StorageManager:
         try:
             buffer_memory_obj = prefetch_task.result()
         except Exception as e:
-            logger.error(
-                f"Exception captured from future in prefetch_callback: {e}")
+            logger.error(f"Exception captured from future in prefetch_callback: {e}")
             raise e
         kv_chunk = buffer_memory_obj.tensor
         kv_shape = kv_chunk.shape
@@ -357,8 +368,7 @@ class StorageManager:
         self.manager_lock.release()
 
     def prefetch(self, key: CacheEngineKey) -> None:
-        """Launch a prefetch request in the storage backend. Non-blocking
-        """
+        """Launch a prefetch request in the storage backend. Non-blocking"""
 
         # Call contains for each backend. Find the nearest cache
         self.manager_lock.acquire()
@@ -374,8 +384,7 @@ class StorageManager:
             prefetch_task = backend.submit_prefetch_task(key)
             if prefetch_task is None:
                 continue
-            lambda_callback = lambda f: \
-                self.prefetch_callback(f, key)
+            lambda_callback = lambda f: self.prefetch_callback(f, key)
 
             self.manager_lock.acquire()
             self.prefetch_tasks[key] = prefetch_task
@@ -391,13 +400,13 @@ class StorageManager:
     ) -> bool:
         """
         Check whether the key exists in the storage backend.
-        
+
         :param CacheEngineKey key: The key to check.
-        
+
         :param Optional[List[str]] search_range: The range of storage backends
         to search in. Should be a subset of ["Hot", "LocalDiskBackend"] for now.
         If None, search in all backends.
-        
+
         return: True if the key exists in the specified storage backends.
         """
         with self.manager_lock:
@@ -406,8 +415,7 @@ class StorageManager:
                     return True
 
             for backend_name, backend in self.storage_backends.items():
-                if search_range is not None and \
-                    backend_name not in search_range:
+                if search_range is not None and backend_name not in search_range:
                     continue
                 if backend.contains(key):
                     return True
@@ -422,15 +430,15 @@ class StorageManager:
         """
         Remove the key and the corresponding cache in the specified
         locations.
-        
+
         :param CacheEngineKey key: The key to remove.
-        
+
         :param Optional[List[str]] locations: The range of storage backends
-        to perform `remove` in. 
+        to perform `remove` in.
         Should be a subset of ["Hot", "LocalDiskBackend"] for now.
         If None, perform `remove` in all backends.
-        
-        return: Total number of removed caches in the specified 
+
+        return: Total number of removed caches in the specified
         storage backends.
         """
 
@@ -455,12 +463,12 @@ class StorageManager:
     ) -> int:
         """
         Clear all caches in the specified locations.
-        
+
         :param Optional[List[str]] locations: The range of storage backends
-        to perform `clear` in. 
+        to perform `clear` in.
         Should be a subset of ["Hot", "LocalDiskBackend"] for now.
         If None, perform `clear` in all backends.
-        
+
         return: Total number of cleared caches in the specified
         storage backends.
         """
@@ -529,8 +537,7 @@ class DistributedStorageManager:
         allocator: MemoryAllocatorInterface,
     ):
         # lazy import because nixl cannot be installed on some machines
-        from lmcache.experimental.storage_backend.nixl_backend import \
-            NixlBackend
+        from lmcache.experimental.storage_backend.nixl_backend import NixlBackend
 
         self.storage_backend = NixlBackend.CreateNixlBackend(config, metadata)
         assert config.nixl_buffer_device is not None
@@ -538,7 +545,7 @@ class DistributedStorageManager:
         # TODO, HACK: we are not using the AdHocMemoryAllocator or other passed
         # allocators. Instead, we are using the NixlBackend's allocator for
         # zero-copy allocatations
-        #self.allocator = allocator
+        # self.allocator = allocator
 
     def allocate(
         self,
@@ -550,9 +557,8 @@ class DistributedStorageManager:
         Allocate memory object with memory allocator.
         Use LRU evictor if eviction is enabled.
         """
-        return self.storage_backend.allocate_zero_copy_write_object(
-            shape, dtype)
-        #return self.allocator.allocate(shape, dtype)
+        return self.storage_backend.allocate_zero_copy_write_object(shape, dtype)
+        # return self.allocator.allocate(shape, dtype)
 
     def dry_allocate(
         self,
@@ -565,8 +571,9 @@ class DistributedStorageManager:
         Use LRU evictor if eviction is enabled.
         """
         return self.storage_backend.get_underlying_allocator().dry_allocate(
-            shape, dtype)
-        #return self.allocator.dry_allocate(shape, dtype)
+            shape, dtype
+        )
+        # return self.allocator.dry_allocate(shape, dtype)
 
     def prepare_put(
         self,
@@ -582,7 +589,7 @@ class DistributedStorageManager:
     ) -> None:
         # NOTE: For zero-copy, we should not use put anymore
         raise NotImplementedError
-        #self.storage_backend.submit_put_task(key, memory_obj)
+        # self.storage_backend.submit_put_task(key, memory_obj)
 
     @_lmcache_nvtx_annotate
     def commit_put(self):
@@ -602,8 +609,9 @@ class DistributedStorageManager:
         self.storage_backend.remove(key)
 
     def prefetch(self, key: CacheEngineKey) -> None:
-        raise NotImplementedError("Prefetch is not implemented for "
-                                  "distributed storage manager.")
+        raise NotImplementedError(
+            "Prefetch is not implemented for " "distributed storage manager."
+        )
 
     def contains(
         self,

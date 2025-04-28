@@ -45,7 +45,7 @@ def close_zmq_socket(socket: zmq.asyncio.Socket, linger: int = 0) -> None:
     Close a ZeroMQ socket cleanly.
 
     :param socket: The zmq.Socket to be closed.
-    :param linger: LINGER period (in milliseconds). 
+    :param linger: LINGER period (in milliseconds).
     Default is 0 (drop immediately).
     """
     try:

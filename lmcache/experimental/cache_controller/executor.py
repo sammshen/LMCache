@@ -20,7 +20,13 @@ import zmq
 import zmq.asyncio
 
 from lmcache.experimental.cache_controller.message import (  # noqa: E501
-    ClearMsg, ClearRetMsg, ClearWorkerMsg, ErrorMsg, Msg, MsgBase)
+    ClearMsg,
+    ClearRetMsg,
+    ClearWorkerMsg,
+    ErrorMsg,
+    Msg,
+    MsgBase,
+)
 from lmcache.logging import init_logger
 
 logger = init_logger(__name__)
@@ -60,11 +66,18 @@ class LMCacheClusterExecutor:
         for worker_id in worker_ids:
             socket = self.reg_controller.get_socket(instance_id, worker_id)
             if socket is None:
-                return ErrorMsg(error=(f"Worker {worker_id} not registered"
-                                       f"for instance {instance_id}"))
+                return ErrorMsg(
+                    error=(
+                        f"Worker {worker_id} not registered"
+                        f"for instance {instance_id}"
+                    )
+                )
             sockets.append(socket)
             serialized_msg = msgspec.msgpack.encode(
-                ClearWorkerMsg(tokens=tokens, ))
+                ClearWorkerMsg(
+                    tokens=tokens,
+                )
+            )
             serialized_msgs.append(serialized_msg)
         serialized_results = await self.execute_workers(
             sockets=sockets,

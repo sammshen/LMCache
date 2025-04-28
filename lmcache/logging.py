@@ -6,8 +6,10 @@ from logging import Logger
 def build_format(color):
     reset = "\x1b[0m"
     underline = "\x1b[3m"
-    return f"{color}[%(asctime)s] LMCache %(levelname)s:{reset} %(message)s "\
-           f"{underline}(%(filename)s:%(lineno)d:%(name)s){reset}"
+    return (
+        f"{color}[%(asctime)s] LMCache %(levelname)s:{reset} %(message)s "
+        f"{underline}(%(filename)s:%(lineno)d:%(name)s){reset}"
+    )
 
 
 class CustomFormatter(logging.Formatter):
@@ -36,7 +38,7 @@ class CustomFormatter(logging.Formatter):
 def get_log_level() -> int:
     """
     Try to read LMCACHE_LOG_LEVEL from environment variables.
-    Could be: 
+    Could be:
     - DEBUG
     - INFO
     - WARNING
@@ -77,17 +79,17 @@ if __name__ == "__main__":
     logger.error("Error message")
     logger.critical("Critical message")
 
-#import logging
-#from logging import Logger
+# import logging
+# from logging import Logger
 #
-#logging.basicConfig(
+# logging.basicConfig(
 #    format="\033[33m%(levelname)s LMCache: \033[0m%(message)s "
 #    "[%(asctime)s] -- %(pathname)s:%(lineno)d",
 #    level=logging.INFO,
-#)
+# )
 #
 #
-#def init_logger(name: str) -> Logger:
+# def init_logger(name: str) -> Logger:
 #    logger = logging.getLogger(name)
 #    logger.setLevel(logging.DEBUG)
 #    return logger

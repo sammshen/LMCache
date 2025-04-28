@@ -41,6 +41,7 @@ class WorkerMsg(MsgBase):
 
 class RegisterMsg(WorkerMsg):
     """Message for Registration"""
+
     # TODO(Jiayi): instance_id can be replaced with url
     instance_id: str
     worker_id: int
@@ -52,6 +53,7 @@ class RegisterMsg(WorkerMsg):
 
 class DeRegisterMsg(WorkerMsg):
     """Message for Deregistration"""
+
     # TODO(Jiayi): instance_id can be replaced with url
     instance_id: str
     worker_id: int
@@ -62,6 +64,7 @@ class DeRegisterMsg(WorkerMsg):
 
 class KVAdmitMsg(WorkerMsg):
     """Message for KV chunk admission"""
+
     # TODO(Jiayi): instance_id can be replaced with url
     instance_id: str
     worker_id: int
@@ -74,6 +77,7 @@ class KVAdmitMsg(WorkerMsg):
 
 class KVEvictMsg(WorkerMsg):
     """Message for KV chunk eviction"""
+
     # TODO(Jiayi): instance_id can be replaced with url
     instance_id: str
     worker_id: int
@@ -96,6 +100,7 @@ class ControlMsg(MsgBase):
 
 class ClearWorkerMsg(ControlMsg):
     """Clear message for a single lmcache worker"""
+
     tokens: Optional[list[int]] = None
 
     def describe(self) -> str:
@@ -111,6 +116,7 @@ class ControlRetMsg(MsgBase):
 
 class ClearWorkerRetMsg(ControlRetMsg):
     """Return message for a ClearWorkerMsg"""
+
     success: bool
 
     def describe(self) -> str:
@@ -129,6 +135,7 @@ class OrchMsg(MsgBase):
 
 class LookupMsg(OrchMsg):
     """Lookup message"""
+
     tokens: list[int]
 
     def describe(self) -> str:
@@ -137,13 +144,16 @@ class LookupMsg(OrchMsg):
 
 class ClearMsg(OrchMsg):
     """Clear message"""
+
     instance_id: str
     worker_ids: Optional[list[int]] = None
     tokens: Optional[list[int]] = None
 
     def describe(self) -> str:
-        return (f"Clear tokens {self.tokens} in instance "
-                f"{self.instance_id} on workers {self.worker_ids}")
+        return (
+            f"Clear tokens {self.tokens} in instance "
+            f"{self.instance_id} on workers {self.worker_ids}"
+        )
 
 
 class OrchRetMsg(MsgBase):
@@ -155,6 +165,7 @@ class OrchRetMsg(MsgBase):
 
 class LookupRetMsg(OrchRetMsg):
     """Lookup message"""
+
     best_instance_id: Optional[str]
 
     def describe(self) -> str:
@@ -163,6 +174,7 @@ class LookupRetMsg(OrchRetMsg):
 
 class ClearRetMsg(OrchRetMsg):
     """Clear message"""
+
     success: bool
 
     def describe(self) -> str:
@@ -171,12 +183,23 @@ class ClearRetMsg(OrchRetMsg):
 
 class ErrorMsg(MsgBase):
     """Control Error Message"""
+
     error: str
 
     def describe(self) -> str:
         return f"Error: {self.error}"
 
 
-Msg = Union[RegisterMsg, DeRegisterMsg, KVAdmitMsg, KVEvictMsg, ClearWorkerMsg,
-            ClearWorkerRetMsg, LookupMsg, LookupRetMsg, ClearMsg, ClearRetMsg,
-            ErrorMsg]
+Msg = Union[
+    RegisterMsg,
+    DeRegisterMsg,
+    KVAdmitMsg,
+    KVEvictMsg,
+    ClearWorkerMsg,
+    ClearWorkerRetMsg,
+    LookupMsg,
+    LookupRetMsg,
+    ClearMsg,
+    ClearRetMsg,
+    ErrorMsg,
+]

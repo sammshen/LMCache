@@ -7,12 +7,15 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from lmcache.experimental.cache_controller.controller_manager import \
-    LMCacheControllerManager
-from lmcache.experimental.cache_controller.message import (ClearMsg,
-                                                           ClearRetMsg,
-                                                           LookupMsg,
-                                                           LookupRetMsg)
+from lmcache.experimental.cache_controller.controller_manager import (
+    LMCacheControllerManager,
+)
+from lmcache.experimental.cache_controller.message import (
+    ClearMsg,
+    ClearRetMsg,
+    LookupMsg,
+    LookupRetMsg,
+)
 from lmcache.logging import init_logger
 
 logger = init_logger(__name__)
@@ -28,7 +31,8 @@ def create_app(controller_url: str) -> FastAPI:
     async def lifespan(app: FastAPI):
         # Start background task here
         lmcache_cluster_monitor_task = asyncio.create_task(
-            lmcache_controller_manager.start_all())
+            lmcache_controller_manager.start_all()
+        )
         yield
         # Optionally cancel the task on shutdown
         lmcache_cluster_monitor_task.cancel()
@@ -45,9 +49,10 @@ def create_app(controller_url: str) -> FastAPI:
     @app.post("/lookup")
     async def lookup(req: LookupRequest):
         try:
-            msg = LookupMsg(tokens=req.tokens, )
-            ret_msg = await lmcache_controller_manager.\
-                handle_orchestration_message(msg)
+            msg = LookupMsg(
+                tokens=req.tokens,
+            )
+            ret_msg = await lmcache_controller_manager.handle_orchestration_message(msg)
             assert isinstance(ret_msg, LookupRetMsg)
             return {"res": ret_msg.best_instance_id}
         except Exception as e:
@@ -66,8 +71,7 @@ def create_app(controller_url: str) -> FastAPI:
                 worker_ids=req.worker_ids,
                 tokens=req.tokens,
             )
-            ret_msg = await lmcache_controller_manager.\
-                handle_orchestration_message(msg)
+            ret_msg = await lmcache_controller_manager.handle_orchestration_message(msg)
             assert isinstance(ret_msg, ClearRetMsg)
             return {"res": ret_msg.success}
         except Exception as e:
@@ -90,6 +94,6 @@ if __name__ == "__main__":
         logger.info(f"Starting LMCache controller at {args.host}:{args.port}")
         logger.info(f"Monitoring lmcache workers at port {args.monitor_port}")
 
-        uvicorn.run(app, host=args.host, port=args.port)  #, reload=True)
+        uvicorn.run(app, host=args.host, port=args.port)  # , reload=True)
     except TimeoutError as e:
         logger.error(e)

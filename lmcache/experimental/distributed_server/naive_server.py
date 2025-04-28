@@ -7,13 +7,20 @@ from typing import Optional
 import torch
 
 from lmcache.experimental.config import LMCacheEngineConfig
-from lmcache.experimental.distributed_server.abstract_server import \
-    DistributedServerInterface  # noqa: E501
+from lmcache.experimental.distributed_server.abstract_server import (
+    DistributedServerInterface,
+)  # noqa: E501
 from lmcache.experimental.lookup_server import LookupServerInterface
-from lmcache.experimental.memory_management import (MemoryAllocatorInterface,
-                                                    MemoryFormat, MemoryObj)
-from lmcache.experimental.protocol import (ClientMetaMessage, Constants,
-                                           ServerMetaMessage)
+from lmcache.experimental.memory_management import (
+    MemoryAllocatorInterface,
+    MemoryFormat,
+    MemoryObj,
+)
+from lmcache.experimental.protocol import (
+    ClientMetaMessage,
+    Constants,
+    ServerMetaMessage,
+)
 from lmcache.experimental.storage_backend.storage_manager import StorageManager
 from lmcache.logging import init_logger
 from lmcache.utils import CacheEngineKey
@@ -123,9 +130,15 @@ class NaiveDistributedServer(DistributedServerInterface):
 
         async with self.async_socket_lock:
             client_socket.sendall(
-                ClientMetaMessage(Constants.CLIENT_GET, key, 0,
-                                  MemoryFormat(1), torch.float16,
-                                  torch.Size([0, 0, 0, 0])).serialize())
+                ClientMetaMessage(
+                    Constants.CLIENT_GET,
+                    key,
+                    0,
+                    MemoryFormat(1),
+                    torch.float16,
+                    torch.Size([0, 0, 0, 0]),
+                ).serialize()
+            )
 
             data = client_socket.recv(ServerMetaMessage.packlength())
 
@@ -156,7 +169,8 @@ class NaiveDistributedServer(DistributedServerInterface):
         try:
             while True:
                 header = await self.receive_all_server(
-                    reader, ClientMetaMessage.packlength())
+                    reader, ClientMetaMessage.packlength()
+                )
                 if not header:
                     break
                 meta = ClientMetaMessage.deserialize(header)
@@ -179,7 +193,8 @@ class NaiveDistributedServer(DistributedServerInterface):
                                     memory_obj.get_memory_format(),
                                     memory_obj.get_dtype(),
                                     memory_obj.get_shape(),
-                                ).serialize())
+                                ).serialize()
+                            )
                             await writer.drain()
 
                             t2 = time.perf_counter()
@@ -189,16 +204,21 @@ class NaiveDistributedServer(DistributedServerInterface):
                             self.memory_allocator.ref_count_down(memory_obj)
 
                             t3 = time.perf_counter()
-                            logger.info(f"Time to get data: {t1 - t0}, "
-                                        f"time to send meta: {t2 - t1}, "
-                                        f"time to send data: {t3 - t2}")
+                            logger.info(
+                                f"Time to get data: {t1 - t0}, "
+                                f"time to send meta: {t2 - t1}, "
+                                f"time to send data: {t3 - t2}"
+                            )
                         else:
                             writer.write(
-                                ServerMetaMessage(Constants.SERVER_FAIL, 0,
-                                                  MemoryFormat(1),
-                                                  torch.float16,
-                                                  torch.Size((0, 0, 0,
-                                                              0))).serialize())
+                                ServerMetaMessage(
+                                    Constants.SERVER_FAIL,
+                                    0,
+                                    MemoryFormat(1),
+                                    torch.float16,
+                                    torch.Size((0, 0, 0, 0)),
+                                ).serialize()
+                            )
                             await writer.drain()
         finally:
             writer.close()
@@ -208,8 +228,7 @@ class NaiveDistributedServer(DistributedServerInterface):
         """
         Start the server.
         """
-        server = await asyncio.start_server(self.handle_client, self.host,
-                                            self.port)
+        server = await asyncio.start_server(self.handle_client, self.host, self.port)
         addr = server.sockets[0].getsockname()
         logger.info(f"Server started at {addr}")
 

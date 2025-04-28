@@ -67,16 +67,11 @@ class ChatSession:
         print(f"Chat session is based on context of file: {context_file_name}")
         self.messages = [
             {
-                "role":
-                "user",
-                "content":
-                "I've got a document, "
-                f"here's the content:```\n{context_text}\n```."
+                "role": "user",
+                "content": "I've got a document, "
+                f"here's the content:```\n{context_text}\n```.",
             },
-            {
-                "role": "assistant",
-                "content": "I've got your document"
-            },
+            {"role": "assistant", "content": "I've got your document"},
         ]
 
         self.printer = Printer()
@@ -96,10 +91,8 @@ class ChatSession:
         end = None
 
         chat_completion = self.client.chat.completions.create(
-            messages=self.messages,
-            model=self.model,
-            temperature=0,
-            stream=True)
+            messages=self.messages, model=self.model, temperature=0, stream=True
+        )
 
         output_buffer = StringIO()
         for chunk in chat_completion:

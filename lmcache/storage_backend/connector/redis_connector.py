@@ -5,8 +5,7 @@ from typing import List, Optional, Tuple, Union
 import redis
 
 from lmcache.logging import init_logger
-from lmcache.storage_backend.connector.base_connector import \
-    RemoteBytesConnector
+from lmcache.storage_backend.connector.base_connector import RemoteBytesConnector
 
 logger = init_logger(__name__)
 
@@ -39,7 +38,8 @@ class RedisConnector(RemoteBytesConnector):
 
         while True:
             ret: Tuple[int, List[bytes]] = self.connection.scan(
-                cursor=cursor, match="*")  # type: ignore
+                cursor=cursor, match="*"
+            )  # type: ignore
             cursor, keys = ret
             all_keys.extend(keys)
             if cursor == 0:
@@ -54,9 +54,9 @@ class RedisConnector(RemoteBytesConnector):
 class RedisSentinelConnector(RemoteBytesConnector):
     """
     Uses redis.Sentinel to connect to a Redis cluster.
-    The hosts are specified in the config file, started with "redis-sentinel://" 
+    The hosts are specified in the config file, started with "redis-sentinel://"
     and separated by commas.
-    
+
     Example:
         remote_url: "redis-sentinel://localhost:26379,localhost:26380,localhost:26381"
 
@@ -74,7 +74,8 @@ class RedisSentinelConnector(RemoteBytesConnector):
             case None:
                 logger.warning(
                     f"Environment variable {self.ENV_REDIS_SERVICE_NAME} is not"
-                    f"found, using default value 'mymaster'")
+                    f"found, using default value 'mymaster'"
+                )
                 service_name = "mymaster"
             case value:
                 service_name = value
@@ -89,10 +90,8 @@ class RedisSentinelConnector(RemoteBytesConnector):
                 timeout = float(value)
 
         self.sentinel = redis.Sentinel(hosts_and_ports, timeout)
-        self.master = self.sentinel.master_for(service_name,
-                                               socket_timeout=timeout)
-        self.slave = self.sentinel.slave_for(service_name,
-                                             socket_timeout=timeout)
+        self.master = self.sentinel.master_for(service_name, socket_timeout=timeout)
+        self.slave = self.sentinel.slave_for(service_name, socket_timeout=timeout)
 
     def exists(self, key: str) -> bool:
         return self.slave.exists(key)

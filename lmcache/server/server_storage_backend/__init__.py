@@ -1,8 +1,9 @@
 from lmcache.logging import init_logger
-from lmcache.server.server_storage_backend.abstract_backend import \
-    LMSBackendInterface
+from lmcache.server.server_storage_backend.abstract_backend import LMSBackendInterface
 from lmcache.server.server_storage_backend.local_backend import (
-    LMSLocalBackend, LMSLocalDiskBackend)
+    LMSLocalBackend,
+    LMSLocalDiskBackend,
+)
 
 logger = init_logger(__name__)
 

@@ -19,15 +19,30 @@ import msgspec
 import zmq
 
 from lmcache.experimental.cache_controller.controllers import (
-    KVController, RegistrationController)
-from lmcache.experimental.cache_controller.executor import \
-    LMCacheClusterExecutor
+    KVController,
+    RegistrationController,
+)
+from lmcache.experimental.cache_controller.executor import LMCacheClusterExecutor
 from lmcache.experimental.cache_controller.message import (  # noqa: E501
-    ClearMsg, ClearRetMsg, ControlMsg, ControlRetMsg, DeRegisterMsg,
-    KVAdmitMsg, KVEvictMsg, LookupMsg, Msg, MsgBase, OrchMsg, OrchRetMsg,
-    RegisterMsg, WorkerMsg)
-from lmcache.experimental.cache_controller.rpc_utils import (get_zmq_context,
-                                                             get_zmq_socket)
+    ClearMsg,
+    ClearRetMsg,
+    ControlMsg,
+    ControlRetMsg,
+    DeRegisterMsg,
+    KVAdmitMsg,
+    KVEvictMsg,
+    LookupMsg,
+    Msg,
+    MsgBase,
+    OrchMsg,
+    OrchRetMsg,
+    RegisterMsg,
+    WorkerMsg,
+)
+from lmcache.experimental.cache_controller.rpc_utils import (
+    get_zmq_context,
+    get_zmq_socket,
+)
 from lmcache.logging import init_logger
 
 logger = init_logger(__name__)
@@ -67,18 +82,20 @@ class LMCacheControllerManager:
 
         # Cluster executor
         self.cluster_executor = LMCacheClusterExecutor(
-            reg_controller=self.reg_controller, )
+            reg_controller=self.reg_controller,
+        )
 
         # post initialization of controllers
         self.kv_controller.post_init(self.cluster_executor)
-        self.reg_controller.post_init(kv_controller=self.kv_controller,
-                                      cluster_executor=self.cluster_executor)
+        self.reg_controller.post_init(
+            kv_controller=self.kv_controller, cluster_executor=self.cluster_executor
+        )
 
-        #self.loop = asyncio.new_event_loop()
-        #self.thread = threading.Thread(target=self.loop.run_forever,
+        # self.loop = asyncio.new_event_loop()
+        # self.thread = threading.Thread(target=self.loop.run_forever,
         #                               daemon=True)
-        #self.thread.start()
-        #asyncio.run_coroutine_threadsafe(self.start_all(), self.loop)
+        # self.thread.start()
+        # asyncio.run_coroutine_threadsafe(self.start_all(), self.loop)
 
     # FIXME(Jiayi): the input and return type are weird
     async def issue_control_message(
@@ -87,8 +104,7 @@ class LMCacheControllerManager:
         if isinstance(msg, ClearMsg):
             return await self.kv_controller.clear(msg)
         else:
-            logger.error("Unknown control or orchestration"
-                         f"message type: {msg}")
+            logger.error("Unknown control or orchestration" f"message type: {msg}")
             return None
 
     async def handle_worker_message(self, msg: WorkerMsg) -> None:
@@ -103,8 +119,7 @@ class LMCacheControllerManager:
         else:
             logger.error(f"Unknown worker message type: {msg}")
 
-    async def handle_orchestration_message(
-            self, msg: OrchMsg) -> Optional[OrchRetMsg]:
+    async def handle_orchestration_message(self, msg: OrchMsg) -> Optional[OrchRetMsg]:
         if isinstance(msg, LookupMsg):
             return await self.kv_controller.lookup(msg)
         elif isinstance(msg, ClearMsg):
@@ -137,5 +152,5 @@ class LMCacheControllerManager:
     async def start_all(self):
         await asyncio.gather(
             self.handle_batched_request(self.controller_socket),
-            #self.handle_batched_request(other socket),
+            # self.handle_batched_request(other socket),
         )

@@ -9,7 +9,8 @@ import yaml
 
 @dataclass
 class LMCacheEngineMetadata:
-    """ name of the LLM model """
+    """name of the LLM model"""
+
     model_name: str
     """ world size when running under a distributed setting """
     world_size: int
@@ -26,7 +27,7 @@ class LMCacheEngineMetadata:
 
 @dataclass
 class LMCacheMemPoolMetadata:
-    """ Subset of `LMCacheEngineMetadata` to initialize MemPool"""
+    """Subset of `LMCacheEngineMetadata` to initialize MemPool"""
 
     kv_shape: Tuple[int, int, int, int, int]
     kv_dtype: torch.dtype
@@ -57,24 +58,33 @@ class LMCacheEngineConfig:
 
     @staticmethod
     def from_defaults(
-            chunk_size: int = 256,
-            local_device: str = "cuda",
-            max_local_cache_size: int = 5,
-            remote_url: Optional[str] = "redis://localhost:6379",
-            remote_serde: Optional[str] = "torch",
-            pipelined_backend: bool = False,
-            save_decode_cache: bool = False,
-            enable_blending: bool = False,
-            blend_recompute_ratio: float = 0.15,
-            blend_min_tokens: int = 256,
-            blend_separator: str = blend_default_separator,
-            blend_add_special_in_precomp: bool = False
+        chunk_size: int = 256,
+        local_device: str = "cuda",
+        max_local_cache_size: int = 5,
+        remote_url: Optional[str] = "redis://localhost:6379",
+        remote_serde: Optional[str] = "torch",
+        pipelined_backend: bool = False,
+        save_decode_cache: bool = False,
+        enable_blending: bool = False,
+        blend_recompute_ratio: float = 0.15,
+        blend_min_tokens: int = 256,
+        blend_separator: str = blend_default_separator,
+        blend_add_special_in_precomp: bool = False,
     ) -> "LMCacheEngineConfig":
         return LMCacheEngineConfig(
-            chunk_size, local_device, max_local_cache_size, remote_url,
-            remote_serde, pipelined_backend, save_decode_cache,
-            enable_blending, blend_recompute_ratio, blend_min_tokens,
-            blend_separator, blend_add_special_in_precomp)
+            chunk_size,
+            local_device,
+            max_local_cache_size,
+            remote_url,
+            remote_serde,
+            pipelined_backend,
+            save_decode_cache,
+            enable_blending,
+            blend_recompute_ratio,
+            blend_min_tokens,
+            blend_separator,
+            blend_add_special_in_precomp,
+        )
 
     @staticmethod
     def from_legacy(
@@ -94,8 +104,7 @@ class LMCacheEngineConfig:
             case "cpu" | "cuda":
                 local_device = backend
                 remote_url = None
-            case path if re.match(r"file://(.*)/",
-                                  path):  # local disk directory
+            case path if re.match(r"file://(.*)/", path):  # local disk directory
                 local_device = path[7:]
                 remote_url = None
             case url if re.match(r"(.*)://(.*):(\d+)", url):
@@ -134,20 +143,16 @@ class LMCacheEngineConfig:
         enable_blending = config.get("enable_blending", False)
         blend_recompute_ratio = config.get("blend_recompute_ratio", 0.15)
         blend_min_tokens = config.get("blend_min_tokens", 256)
-        blend_separator = config.get("blend_separator",
-                                     blend_default_separator)
-        blend_add_special_in_precomp = config.get(
-            "blend_add_special_in_precomp", False)
+        blend_separator = config.get("blend_separator", blend_default_separator)
+        blend_add_special_in_precomp = config.get("blend_add_special_in_precomp", False)
 
         match local_device:
             case "cpu" | "cuda" | None:
                 pass
-            case path if re.match(r"file://(.*)/",
-                                  path):  # local disk directory
+            case path if re.match(r"file://(.*)/", path):  # local disk directory
                 local_device = path[7:]
             case _:
-                raise ValueError(
-                    f"Invalid local storage device: {local_device}")
+                raise ValueError(f"Invalid local storage device: {local_device}")
 
         match remote_url:
             case None:
@@ -181,7 +186,7 @@ class LMCacheEngineConfig:
 
         The environment variables should starts with LMCACHE and be in
         uppercase. For example, `LMCACHE_CHUNK_SIZE`.
-        
+
         :note: the default configuration only uses cpu
         """
 
@@ -194,38 +199,49 @@ class LMCacheEngineConfig:
             else:
                 return os.getenv(name)
 
-        config = LMCacheEngineConfig.from_defaults(local_device="cpu",
-                                                   remote_url=None,
-                                                   remote_serde=None)
+        config = LMCacheEngineConfig.from_defaults(
+            local_device="cpu", remote_url=None, remote_serde=None
+        )
 
         config.chunk_size = int(
-            parse_env(get_env_name("chunk_size"), config.chunk_size))
-        config.local_device = parse_env(get_env_name("local_device"),
-                                        config.local_device)
+            parse_env(get_env_name("chunk_size"), config.chunk_size)
+        )
+        config.local_device = parse_env(
+            get_env_name("local_device"), config.local_device
+        )
         config.max_local_cache_size = int(
-            parse_env(get_env_name("max_local_cache_size"),
-                      config.max_local_cache_size))
-        config.remote_url = parse_env(get_env_name("remote_url"),
-                                      config.remote_url)
-        config.remote_serde = parse_env(get_env_name("remote_serde"),
-                                        config.remote_serde)
-        config.pipelined_backend = parse_env(get_env_name("pipelined_backend"),
-                                             config.pipelined_backend)
-        config.save_decode_cache = parse_env(get_env_name("save_decode_cache"),
-                                             config.save_decode_cache)
-        config.enable_blending = parse_env(get_env_name("enable_blending"),
-                                           config.enable_blending)
+            parse_env(get_env_name("max_local_cache_size"), config.max_local_cache_size)
+        )
+        config.remote_url = parse_env(get_env_name("remote_url"), config.remote_url)
+        config.remote_serde = parse_env(
+            get_env_name("remote_serde"), config.remote_serde
+        )
+        config.pipelined_backend = parse_env(
+            get_env_name("pipelined_backend"), config.pipelined_backend
+        )
+        config.save_decode_cache = parse_env(
+            get_env_name("save_decode_cache"), config.save_decode_cache
+        )
+        config.enable_blending = parse_env(
+            get_env_name("enable_blending"), config.enable_blending
+        )
         config.blend_recompute_ratio = float(
-            parse_env(get_env_name("blend_recompute_ratio"),
-                      config.blend_recompute_ratio))
+            parse_env(
+                get_env_name("blend_recompute_ratio"), config.blend_recompute_ratio
+            )
+        )
         config.blend_min_tokens = int(
-            parse_env(get_env_name("blend_min_tokens"),
-                      config.blend_min_tokens))
-        config.blend_separator = parse_env(get_env_name("blend_separator"),
-                                           config.blend_separator)
+            parse_env(get_env_name("blend_min_tokens"), config.blend_min_tokens)
+        )
+        config.blend_separator = parse_env(
+            get_env_name("blend_separator"), config.blend_separator
+        )
         config.blend_add_special_in_precomp = bool(
-            parse_env(get_env_name("blend_add_special_in_precomp"),
-                      config.blend_add_special_in_precomp))
+            parse_env(
+                get_env_name("blend_add_special_in_precomp"),
+                config.blend_add_special_in_precomp,
+            )
+        )
 
         return config
 

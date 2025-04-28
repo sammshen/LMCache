@@ -2,8 +2,9 @@ import asyncio
 import time
 
 from lmcache_vllm.vllm import AsyncEngineArgs
-from lmcache_vllm.vllm.entrypoints.openai.api_server import \
-    build_async_engine_client_from_engine_args
+from lmcache_vllm.vllm.entrypoints.openai.api_server import (
+    build_async_engine_client_from_engine_args,
+)
 from lmcache_vllm.vllm.entrypoints.openai.protocol import ChatCompletionRequest
 from lmcache_vllm.vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from lmcache_vllm.vllm.entrypoints.openai.serving_engine import BaseModelPath
@@ -18,10 +19,7 @@ def create_chat_request(content):
     """Create a ChatCompletionRequest with the given content."""
     return ChatCompletionRequest(
         model=MODEL_NAME,
-        messages=[{
-            "role": "user",
-            "content": content
-        }],
+        messages=[{"role": "user", "content": content}],
         max_tokens=50,
         temperature=0.7,
         seed=42,
@@ -34,8 +32,10 @@ async def send_request(openai_server, request, index):
     response = await openai_server.create_chat_completion(request)
     end_time = time.time()
     latency = end_time - start_time
-    print(f"Response {index + 1} (Latency: {latency:.4f}s): "
-          f"{response.choices[0].message.content}")
+    print(
+        f"Response {index + 1} (Latency: {latency:.4f}s): "
+        f"{response.choices[0].message.content}"
+    )
 
 
 async def main():
@@ -46,8 +46,7 @@ async def main():
     engine_args = AsyncEngineArgs(model=MODEL_PATH)
     print(f"Initializing vLLM engine with args: {engine_args}")
 
-    async with (build_async_engine_client_from_engine_args(engine_args) as
-                engine):
+    async with build_async_engine_client_from_engine_args(engine_args) as engine:
         openai_server = OpenAIServingChat(
             engine,
             await engine.get_model_config(),
@@ -56,12 +55,13 @@ async def main():
             lora_modules=None,
             prompt_adapters=None,
             request_logger=None,
-            chat_template=None)
+            chat_template=None,
+        )
 
         prompts = [
             "Hello, how are you?",
             "Hello, how are you?",  # Same prompt to test KV cache
-            "Hello, how are you? I am good. Please tell me more about you"
+            "Hello, how are you? I am good. Please tell me more about you",
         ]
 
         # Send requests sequentially

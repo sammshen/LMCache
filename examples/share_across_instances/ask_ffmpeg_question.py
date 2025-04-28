@@ -30,7 +30,7 @@ class Printer:
         while not self._stop_event.is_set():
             arrows = ">" * (idx % 6)
             string = "{:6s}".format(arrows)
-            print("\033[31m\r" + string + "\033[0m", end='', flush=True)
+            print("\033[31m\r" + string + "\033[0m", end="", flush=True)
             idx += 1
             time.sleep(0.2)
 
@@ -45,7 +45,7 @@ class Printer:
             self._stop_event.set()
             self._thread.join()
             self._thread = None
-            print("\033[31m\r>>>>> \033[0m", end='', flush=True)
+            print("\033[31m\r>>>>> \033[0m", end="", flush=True)
 
 
 class ChatSession:
@@ -66,16 +66,11 @@ class ChatSession:
 
         self.messages = [
             {
-                "role":
-                "user",
-                "content":
-                "I've got a document, "
-                f"here's the content:```\n{self.context}\n```."
+                "role": "user",
+                "content": "I've got a document, "
+                f"here's the content:```\n{self.context}\n```.",
             },
-            {
-                "role": "assistant",
-                "content": "I've got your document"
-            },
+            {"role": "assistant", "content": "I've got your document"},
         ]
 
         print(f"\033[33mLoaded context file: {self.context_file}\033[0m")
@@ -98,10 +93,8 @@ class ChatSession:
         end = None
 
         chat_completion = self.client.chat.completions.create(
-            messages=self.messages,
-            model=self.model,
-            temperature=0,
-            stream=True)
+            messages=self.messages, model=self.model, temperature=0, stream=True
+        )
 
         output_buffer = StringIO()
         for chunk in chat_completion:

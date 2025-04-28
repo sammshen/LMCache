@@ -24,7 +24,7 @@ class Serializer(metaclass=abc.ABCMeta):
     def serialize(self, memory_obj: MemoryObj) -> MemoryObj:
         """
         Serialize/compress the memory object.
-        
+
         Input:
             memory_obj: the memory object to be serialized/compressed.
 

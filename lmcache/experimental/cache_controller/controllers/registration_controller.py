@@ -17,11 +17,12 @@ from typing import Optional
 import zmq
 import zmq.asyncio
 
-from lmcache.experimental.cache_controller.message import (DeRegisterMsg,
-                                                           RegisterMsg)
-from lmcache.experimental.cache_controller.rpc_utils import (close_zmq_socket,
-                                                             get_zmq_context,
-                                                             get_zmq_socket)
+from lmcache.experimental.cache_controller.message import DeRegisterMsg, RegisterMsg
+from lmcache.experimental.cache_controller.rpc_utils import (
+    close_zmq_socket,
+    get_zmq_context,
+    get_zmq_socket,
+)
 from lmcache.logging import init_logger
 
 logger = init_logger(__name__)
@@ -43,15 +44,17 @@ class RegistrationController:
         self.kv_controller = kv_controller
         self.cluster_executor = cluster_executor
 
-    def get_socket(self, instance_id: str,
-                   worker_id: int) -> Optional[zmq.asyncio.Socket]:
+    def get_socket(
+        self, instance_id: str, worker_id: int
+    ) -> Optional[zmq.asyncio.Socket]:
         """
         Get the socket for a given instance and worker ID.
         """
         socket = self.socket_mapping.get((instance_id, worker_id))
         if socket is None:
-            logger.warning(f"Instance-worker {(instance_id, worker_id)}"
-                           " not registered")
+            logger.warning(
+                f"Instance-worker {(instance_id, worker_id)}" " not registered"
+            )
         return socket
 
     def get_workers(self, instance_id: str) -> list[int]:
@@ -69,15 +72,17 @@ class RegistrationController:
         url = msg.url
 
         context = get_zmq_context()
-        socket = get_zmq_socket(context, url, protocol="tcp",
-                                role=zmq.REQ)  # type: ignore[attr-defined]
+        socket = get_zmq_socket(
+            context, url, protocol="tcp", role=zmq.REQ
+        )  # type: ignore[attr-defined]
 
         self.socket_mapping[(instance_id, worker_id)] = socket
         if instance_id not in self.worker_mapping:
             self.worker_mapping[instance_id] = []
         self.worker_mapping[instance_id].append(worker_id)
-        logger.info(f"Registered instance-worker {(instance_id, worker_id)}"
-                    f" with URL {url}")
+        logger.info(
+            f"Registered instance-worker {(instance_id, worker_id)}" f" with URL {url}"
+        )
 
     async def deregister(self, msg: DeRegisterMsg) -> None:
         """
@@ -96,8 +101,8 @@ class RegistrationController:
             socket = self.socket_mapping.pop((instance_id, worker_id))
             close_zmq_socket(socket)
             self.kv_controller.deregister(instance_id, worker_id)
-            logger.info(
-                f"Deregistered instance-worker {(instance_id, worker_id)}")
+            logger.info(f"Deregistered instance-worker {(instance_id, worker_id)}")
         else:
-            logger.warning(f"Instance-worker {(instance_id, worker_id)}"
-                           "not registered")
+            logger.warning(
+                f"Instance-worker {(instance_id, worker_id)}" "not registered"
+            )

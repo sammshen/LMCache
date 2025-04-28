@@ -51,10 +51,8 @@ class ChatSession:
         start = time.perf_counter()
         end = None
         chat_completion = self.client.chat.completions.create(
-            messages=self.messages,
-            model=self.model,
-            temperature=0,
-            stream=True)
+            messages=self.messages, model=self.model, temperature=0, stream=True
+        )
 
         server_message = []
         for chunk in chat_completion:

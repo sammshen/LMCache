@@ -2,9 +2,14 @@ import pytest
 import torch
 
 from lmcache.experimental.memory_management import (  # noqa
-    BytesBufferMemoryObj, GPUMemoryAllocator, HostMemoryAllocator,
-    MemoryFormat, MixedMemoryAllocator, PinMemoryAllocator,
-    TensorMemoryAllocator)
+    BytesBufferMemoryObj,
+    GPUMemoryAllocator,
+    HostMemoryAllocator,
+    MemoryFormat,
+    MixedMemoryAllocator,
+    PinMemoryAllocator,
+    TensorMemoryAllocator,
+)
 
 
 def check_allocator(allocator, max_size):
@@ -41,8 +46,7 @@ def check_allocator(allocator, max_size):
     assert data4.tensor.dtype == torch.half
     assert data4.tensor.shape == (3, 5, 7)
 
-    data_fail = allocator.allocate([max_size],
-                                   dtype=torch.float)  # This should fail
+    data_fail = allocator.allocate([max_size], dtype=torch.float)  # This should fail
     assert data_fail is None
 
     assert allocator.memcheck()
@@ -64,24 +68,30 @@ def test_tensor_allocator():
     check_allocator(allocator, total_size)
 
 
-@pytest.mark.parametrize("alloc_cls", [
-    HostMemoryAllocator,
-    PinMemoryAllocator,
-    GPUMemoryAllocator,
-    MixedMemoryAllocator,
-])
+@pytest.mark.parametrize(
+    "alloc_cls",
+    [
+        HostMemoryAllocator,
+        PinMemoryAllocator,
+        GPUMemoryAllocator,
+        MixedMemoryAllocator,
+    ],
+)
 def test_device_allocators(alloc_cls):
     total_size = 1 << 25
     allocator = alloc_cls(total_size)
     check_allocator(allocator, total_size)
 
 
-@pytest.mark.parametrize("alloc_cls", [
-    HostMemoryAllocator,
-    PinMemoryAllocator,
-    GPUMemoryAllocator,
-    MixedMemoryAllocator,
-])
+@pytest.mark.parametrize(
+    "alloc_cls",
+    [
+        HostMemoryAllocator,
+        PinMemoryAllocator,
+        GPUMemoryAllocator,
+        MixedMemoryAllocator,
+    ],
+)
 def test_inplace_modification(alloc_cls):
     total_size = 1024
     allocator = alloc_cls(total_size)
@@ -89,7 +99,7 @@ def test_inplace_modification(alloc_cls):
     data = allocator.allocate([10], torch.float)
     assert data is not None
     assert data.tensor.dtype == torch.float
-    assert data.tensor.shape == (10, )
+    assert data.tensor.shape == (10,)
 
     data.tensor.fill_(1.0)
     assert torch.all(data.tensor == 1.0)
@@ -98,12 +108,15 @@ def test_inplace_modification(alloc_cls):
     assert data.tensor[1] == 2.0
 
 
-@pytest.mark.parametrize("alloc_cls", [
-    HostMemoryAllocator,
-    PinMemoryAllocator,
-    GPUMemoryAllocator,
-    MixedMemoryAllocator,
-])
+@pytest.mark.parametrize(
+    "alloc_cls",
+    [
+        HostMemoryAllocator,
+        PinMemoryAllocator,
+        GPUMemoryAllocator,
+        MixedMemoryAllocator,
+    ],
+)
 def test_boundary_alloc(alloc_cls):
     total_size = 1 << 25
     allocator = alloc_cls(total_size)
@@ -120,9 +133,12 @@ def test_boundary_alloc(alloc_cls):
         assert len(allocator.allocator.explicit_list) == 1
 
 
-@pytest.mark.parametrize("alloc_cls", [
-    MixedMemoryAllocator,
-])
+@pytest.mark.parametrize(
+    "alloc_cls",
+    [
+        MixedMemoryAllocator,
+    ],
+)
 def test_mixed_alloc(alloc_cls):
     total_size = 1 << 25
     allocator = alloc_cls(total_size)

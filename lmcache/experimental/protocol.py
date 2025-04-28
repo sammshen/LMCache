@@ -55,7 +55,7 @@ class RedisMetadata:
     fmt: MemoryFormat
 
     def serialize_into(self, buffer):
-        assert (len(self.shape) == 4), "Shape dimension should be 4"
+        assert len(self.shape) == 4, "Shape dimension should be 4"
 
         struct.pack_into(
             "iiiiiii",
@@ -74,7 +74,7 @@ class RedisMetadata:
 
         # NOTE(Jiayi): 4 is the maximum dimension of memory object.
         # Pass in shape [x, 0, 0, 0] if it is a bytes memory object
-        assert (len(self.shape) == 4), "Shape dimension should be 4"
+        assert len(self.shape) == 4, "Shape dimension should be 4"
 
         packed_bytes = struct.pack(
             "iiiiiii",
@@ -90,11 +90,15 @@ class RedisMetadata:
 
     @staticmethod
     def deserialize(s: bytes) -> "RedisMetadata":
-        length, fmt, dtype, shape0, shape1, shape2, shape3 = \
-            struct.unpack_from("iiiiiii", s)
-        return RedisMetadata(length,
-                             torch.Size([shape0, shape1, shape2, shape3]),
-                             INT_TO_DTYPE[dtype], MemoryFormat(fmt))
+        length, fmt, dtype, shape0, shape1, shape2, shape3 = struct.unpack_from(
+            "iiiiiii", s
+        )
+        return RedisMetadata(
+            length,
+            torch.Size([shape0, shape1, shape2, shape3]),
+            INT_TO_DTYPE[dtype],
+            MemoryFormat(fmt),
+        )
 
 
 @dataclass
@@ -118,7 +122,7 @@ class ClientMetaMessage:
 
         # NOTE(Jiayi): 4 is the maximum dimension of memory object.
         # Pass in shape [x, 0, 0, 0] if it is a bytes memory object
-        assert (len(self.shape) == 4), "Shape dimension should be 4"
+        assert len(self.shape) == 4, "Shape dimension should be 4"
 
         packed_bytes = struct.pack(
             f"iiiiiiii{MAX_KEY_LENGTH}s",
@@ -136,12 +140,17 @@ class ClientMetaMessage:
 
     @staticmethod
     def deserialize(s: bytes) -> "ClientMetaMessage":
-        command, length, fmt, dtype, shape0, shape1, shape2, shape3, key = \
+        command, length, fmt, dtype, shape0, shape1, shape2, shape3, key = (
             struct.unpack(f"iiiiiiii{MAX_KEY_LENGTH}s", s)
+        )
         return ClientMetaMessage(
-            command, CacheEngineKey.from_string(key.decode().strip()), length,
-            MemoryFormat(fmt), INT_TO_DTYPE[dtype],
-            torch.Size([shape0, shape1, shape2, shape3]))
+            command,
+            CacheEngineKey.from_string(key.decode().strip()),
+            length,
+            MemoryFormat(fmt),
+            INT_TO_DTYPE[dtype],
+            torch.Size([shape0, shape1, shape2, shape3]),
+        )
 
     @staticmethod
     def packlength() -> int:
@@ -162,7 +171,7 @@ class ServerMetaMessage:
     shape: torch.Size
 
     def serialize(self) -> bytes:
-        assert (len(self.shape) == 4), "Shape dimension should be 4"
+        assert len(self.shape) == 4, "Shape dimension should be 4"
         packed_bytes = struct.pack(
             "iiiiiiii",
             self.code,
@@ -182,8 +191,13 @@ class ServerMetaMessage:
 
     @staticmethod
     def deserialize(s: bytes) -> "ServerMetaMessage":
-        code, length, fmt, dtype, shape0, shape1, shape2, shape3 =\
-            struct.unpack("iiiiiiii", s)
-        return ServerMetaMessage(code, length, MemoryFormat(fmt),
-                                 INT_TO_DTYPE[dtype],
-                                 torch.Size([shape0, shape1, shape2, shape3]))
+        code, length, fmt, dtype, shape0, shape1, shape2, shape3 = struct.unpack(
+            "iiiiiiii", s
+        )
+        return ServerMetaMessage(
+            code,
+            length,
+            MemoryFormat(fmt),
+            INT_TO_DTYPE[dtype],
+            torch.Size([shape0, shape1, shape2, shape3]),
+        )

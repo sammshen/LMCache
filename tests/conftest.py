@@ -60,8 +60,7 @@ def mock_redis():
 
 @pytest.fixture(scope="function", autouse=True)
 def mock_redis_sentinel():
-    with patch("redis.Sentinel",
-               new_callable=lambda: MockRedisSentinel) as mock:
+    with patch("redis.Sentinel", new_callable=lambda: MockRedisSentinel) as mock:
         yield mock
 
 
@@ -100,8 +99,11 @@ def lmserver_experimental_process(request):
         port_number = random.randint(10000, 65500)
         print("Starting the lmcache experimental server process on port")
         proc = subprocess.Popen(
-            shlex.split("python3 -m lmcache.experimental.server localhost "
-                        f"{port_number} {device}"))
+            shlex.split(
+                "python3 -m lmcache.experimental.server localhost "
+                f"{port_number} {device}"
+            )
+        )
 
         # Wait for lmcache process to start
         time.sleep(5)
@@ -166,8 +168,8 @@ def lmserver_process(request):
         port_number = random.randint(10000, 65500)
         print("Starting the lmcache server process on port")
         proc = subprocess.Popen(
-            shlex.split(
-                f"python3 -m lmcache.server localhost {port_number} {device}"))
+            shlex.split(f"python3 -m lmcache.server localhost {port_number} {device}")
+        )
 
         # Wait for lmcache process to start
         time.sleep(5)
@@ -225,5 +227,5 @@ def autorelease_experimental(request):
     LMCacheEngineBuilder.destroy("test")
 
     # Cleanup all objects created by the factory
-    #for obj in objects:
+    # for obj in objects:
     #    obj.close()

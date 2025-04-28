@@ -18,12 +18,16 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from lmcache.experimental.memory_management import MemoryAllocatorInterface
-from lmcache.experimental.storage_backend.connector.base_connector import \
-    RemoteConnector
-from lmcache.experimental.storage_backend.connector.lm_connector import \
-    LMCServerConnector
+from lmcache.experimental.storage_backend.connector.base_connector import (
+    RemoteConnector,
+)
+from lmcache.experimental.storage_backend.connector.lm_connector import (
+    LMCServerConnector,
+)
 from lmcache.experimental.storage_backend.connector.redis_connector import (
-    RedisConnector, RedisSentinelConnector)
+    RedisConnector,
+    RedisSentinelConnector,
+)
 from lmcache.logging import init_logger
 
 from .blackhole_connector import BlackholeConnector
@@ -83,20 +87,19 @@ def parse_remote_url(url: str) -> ParsedRemoteURL:
         match = re.match(host_pattern, host_def, re.VERBOSE)
 
         if not match:
-            raise ValueError(
-                f"Invalid host definition: {host_def} in URL: {url}")
+            raise ValueError(f"Invalid host definition: {host_def} in URL: {url}")
 
         host = match.group(1)
         port = int(match.group(2))
-        path = match.group(3).lstrip('/')
-        path = path.lstrip('/')
+        path = match.group(3).lstrip("/")
+        path = path.lstrip("/")
         query_str = match.group(4) or ""
 
         params_dict = {}
         if query_str:
-            for param in query_str.split('&'):
-                if '=' in param:
-                    key, value = param.split('=', 1)
+            for param in query_str.split("&"):
+                if "=" in param:
+                    key, value = param.split("=", 1)
                     params_dict[key] = value
                 elif param:
                     params_dict[param] = ""
@@ -106,11 +109,13 @@ def parse_remote_url(url: str) -> ParsedRemoteURL:
         paths.append(path)
         query_params.append(params_dict)
 
-    return ParsedRemoteURL(connector_type=connector_type,
-                           hosts=hosts,
-                           ports=ports,
-                           paths=paths,
-                           query_params=query_params)
+    return ParsedRemoteURL(
+        connector_type=connector_type,
+        hosts=hosts,
+        ports=ports,
+        paths=paths,
+        query_params=query_params,
+    )
 
 
 def CreateConnector(
@@ -138,7 +143,8 @@ def CreateConnector(
             else:
                 raise ValueError(
                     f"Redis connector only supports a single host, but got url:"
-                    f" {url}")
+                    f" {url}"
+                )
 
         case "redis-sentinel":
             connector = RedisSentinelConnector(
@@ -150,27 +156,29 @@ def CreateConnector(
         case "lm":
             if num_hosts == 1:
                 host, port = parsed_url.hosts[0], parsed_url.ports[0]
-                connector = LMCServerConnector(host, port, loop,
-                                               memory_allocator)
+                connector = LMCServerConnector(host, port, loop, memory_allocator)
             else:
                 raise ValueError(
-                    f"LM connector only supports a single host, but got url:"
-                    f" {url}")
+                    f"LM connector only supports a single host, but got url:" f" {url}"
+                )
         case "infinistore":
             host, port = parsed_url.hosts[0], parsed_url.ports[0]
             device_name = parsed_url.query_params[0].get("device", "mlx5_0")
-            connector = InfinistoreConnector(host, port, device_name, loop,
-                                             memory_allocator)
+            connector = InfinistoreConnector(
+                host, port, device_name, loop, memory_allocator
+            )
         case "mooncakestore":
             host, port = parsed_url.hosts[0], parsed_url.ports[0]
             device_name = parsed_url.query_params[0].get("device", "")
-            connector = MooncakestoreConnector(host, port, device_name, loop,
-                                               memory_allocator)
+            connector = MooncakestoreConnector(
+                host, port, device_name, loop, memory_allocator
+            )
         case "blackhole":
             connector = BlackholeConnector(memory_allocator)
         case _:
-            raise ValueError(f"Unknown connector type {connector_type} "
-                             f"(url is: {url})")
+            raise ValueError(
+                f"Unknown connector type {connector_type} " f"(url is: {url})"
+            )
 
     logger.info(f"Created connector {connector} for {connector_type}")
     return connector

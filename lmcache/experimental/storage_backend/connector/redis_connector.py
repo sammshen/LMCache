@@ -19,11 +19,11 @@ from typing import List, Optional, Tuple, Union, no_type_check
 
 import redis
 
-from lmcache.experimental.memory_management import (MemoryAllocatorInterface,
-                                                    MemoryObj)
+from lmcache.experimental.memory_management import MemoryAllocatorInterface, MemoryObj
 from lmcache.experimental.protocol import RedisMetadata
-from lmcache.experimental.storage_backend.connector.base_connector import \
-    RemoteConnector
+from lmcache.experimental.storage_backend.connector.base_connector import (
+    RemoteConnector,
+)
 from lmcache.logging import init_logger
 from lmcache.utils import CacheEngineKey
 
@@ -40,11 +40,14 @@ class RedisConnector(RemoteConnector):
     The remote url should start with "redis://" and only have one host-port pair
     """
 
-    def __init__(self, host: str, port: int, loop: asyncio.AbstractEventLoop,
-                 memory_allocator: MemoryAllocatorInterface):
-        self.connection = redis.Redis(host=host,
-                                      port=port,
-                                      decode_responses=False)
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        loop: asyncio.AbstractEventLoop,
+        memory_allocator: MemoryAllocatorInterface,
+    ):
+        self.connection = redis.Redis(host=host, port=port, decode_responses=False)
 
         self.memory_allocator = memory_allocator
         self.loop = loop
@@ -61,8 +64,7 @@ class RedisConnector(RemoteConnector):
 
         assert not inspect.isawaitable(redis_metadata_bytes)
 
-        redis_metadata = RedisMetadata.deserialize(
-            memoryview(redis_metadata_bytes))
+        redis_metadata = RedisMetadata.deserialize(memoryview(redis_metadata_bytes))
 
         memory_obj = self.memory_allocator.allocate(
             redis_metadata.shape,
@@ -83,13 +85,15 @@ class RedisConnector(RemoteConnector):
             # consistency issues.
             # TODO (Jiayi): A better way is to aggregate metadata
             # and kv cache in one key.
-            logger.warning("Key exists but KV cache does not exist."
-                           "Might happen when the cache is evicted by redis.")
+            logger.warning(
+                "Key exists but KV cache does not exist."
+                "Might happen when the cache is evicted by redis."
+            )
             self.connection.delete(key_str + "metadata")
             return None
 
         view = memoryview(memory_obj.byte_array)
-        view[:redis_metadata.length] = kv_bytes
+        view[: redis_metadata.length] = kv_bytes
 
         return memory_obj
 
@@ -101,8 +105,9 @@ class RedisConnector(RemoteConnector):
         kv_dtype = memory_obj.get_dtype()
         memory_format = memory_obj.get_memory_format()
 
-        redis_metadata_bytes = RedisMetadata(len(kv_bytes), kv_shape, kv_dtype,
-                                             memory_format).serialize()
+        redis_metadata_bytes = RedisMetadata(
+            len(kv_bytes), kv_shape, kv_dtype, memory_format
+        ).serialize()
 
         key_str = key.to_string()
         self.connection.set(key_str + "metadata", redis_metadata_bytes)
@@ -123,9 +128,9 @@ class RedisConnector(RemoteConnector):
 class RedisSentinelConnector(RemoteConnector):
     """
     Uses redis.Sentinel to connect to a Redis cluster.
-    The hosts are specified in the config file, started with "redis-sentinel://" 
+    The hosts are specified in the config file, started with "redis-sentinel://"
     and separated by commas.
-    
+
     Example:
         remote_url: "redis-sentinel://localhost:26379,localhost:26380,localhost:26381"
 
@@ -137,15 +142,19 @@ class RedisSentinelConnector(RemoteConnector):
     ENV_REDIS_TIMEOUT = "REDIS_TIMEOUT"
     ENV_REDIS_SERVICE_NAME = "REDIS_SERVICE_NAME"
 
-    def __init__(self, hosts_and_ports: List[Tuple[str, Union[str, int]]],
-                 loop: asyncio.AbstractEventLoop,
-                 memory_allocator: MemoryAllocatorInterface):
+    def __init__(
+        self,
+        hosts_and_ports: List[Tuple[str, Union[str, int]]],
+        loop: asyncio.AbstractEventLoop,
+        memory_allocator: MemoryAllocatorInterface,
+    ):
         # Get service name
         match os.environ.get(self.ENV_REDIS_SERVICE_NAME):
             case None:
                 logger.warning(
                     f"Environment variable {self.ENV_REDIS_SERVICE_NAME} is "
-                    f"not found, using default value 'redismaster'")
+                    f"not found, using default value 'redismaster'"
+                )
                 service_name = "redismaster"
             case value:
                 service_name = value
@@ -161,10 +170,8 @@ class RedisSentinelConnector(RemoteConnector):
 
         logger.info(f"Host and ports: {hosts_and_ports}")
         self.sentinel = redis.Sentinel(hosts_and_ports, timeout)
-        self.master = self.sentinel.master_for(service_name,
-                                               socket_timeout=timeout)
-        self.slave = self.sentinel.slave_for(service_name,
-                                             socket_timeout=timeout)
+        self.master = self.sentinel.master_for(service_name, socket_timeout=timeout)
+        self.slave = self.sentinel.slave_for(service_name, socket_timeout=timeout)
 
         self.memory_allocator = memory_allocator
 
@@ -201,13 +208,15 @@ class RedisSentinelConnector(RemoteConnector):
             # consistency issues.
             # TODO (Jiayi): A background sweeper might be better
             # for the sake of performance.
-            logger.warning("Key exists but KV cache does not exist."
-                           "Might happen when the cache is evicted by redis.")
+            logger.warning(
+                "Key exists but KV cache does not exist."
+                "Might happen when the cache is evicted by redis."
+            )
             self.master.delete(key_str + "metadata")
             return None
 
         view = memoryview(memory_obj.byte_array)
-        view[0:redis_metadata.length] = kv_bytes
+        view[0 : redis_metadata.length] = kv_bytes
 
         return memory_obj
 
@@ -219,8 +228,9 @@ class RedisSentinelConnector(RemoteConnector):
         kv_dtype = memory_obj.get_dtype()
         memory_format = memory_obj.get_memory_format()
 
-        redis_metadata_bytes = RedisMetadata(len(kv_bytes), kv_shape, kv_dtype,
-                                             memory_format).serialize()
+        redis_metadata_bytes = RedisMetadata(
+            len(kv_bytes), kv_shape, kv_dtype, memory_format
+        ).serialize()
 
         key_str = key.to_string()
         self.master.set(key_str + "metadata", redis_metadata_bytes)

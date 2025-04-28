@@ -15,11 +15,19 @@ from lmcache.logging import init_logger
 from lmcache.storage_backend.abstract_backend import LMCBackendInterface
 from lmcache.storage_backend.evictor import LRUEvictor
 from lmcache.storage_backend.evictor.base_evictor import PutStatus
-from lmcache.storage_backend.mem_pool import (KVObj, LocalCPUBufferPool,
-                                              LocalCPUPool, LocalGPUPool,
-                                              LocalPool)
-from lmcache.utils import (CacheEngineKey, DiskCacheMetadata, KVCache,
-                           _lmcache_nvtx_annotate)
+from lmcache.storage_backend.mem_pool import (
+    KVObj,
+    LocalCPUBufferPool,
+    LocalCPUPool,
+    LocalGPUPool,
+    LocalPool,
+)
+from lmcache.utils import (
+    CacheEngineKey,
+    DiskCacheMetadata,
+    KVCache,
+    _lmcache_nvtx_annotate,
+)
 
 logger = init_logger(__name__)
 
@@ -34,10 +42,12 @@ class LMCLocalBackend(LMCBackendInterface):
     memory.
     """
 
-    def __init__(self,
-                 config: LMCacheEngineConfig,
-                 metadata: LMCacheMemPoolMetadata,
-                 dst_device: str = "cuda"):
+    def __init__(
+        self,
+        config: LMCacheEngineConfig,
+        metadata: LMCacheMemPoolMetadata,
+        dst_device: str = "cuda",
+    ):
         """
         Throws:
             RuntimeError if the loaded configuration does not match the current
@@ -51,8 +61,8 @@ class LMCLocalBackend(LMCBackendInterface):
         self.device = config.local_device
 
         self.put_queue: queue.Queue[
-            Union[Tuple[CacheEngineKey, torch.Tensor],
-                  LocalBackendEndSignal]] = queue.Queue()
+            Union[Tuple[CacheEngineKey, torch.Tensor], LocalBackendEndSignal]
+        ] = queue.Queue()
         self.put_thread = threading.Thread(target=self.put_worker, args=())
         self.put_thread.start()
         self.update_lock = threading.Lock()
@@ -100,7 +110,9 @@ class LMCLocalBackend(LMCBackendInterface):
         self.mpool.free(kv_obj)
 
     @_lmcache_nvtx_annotate
-    def put_worker(self, ):
+    def put_worker(
+        self,
+    ):
         while True:
             item = self.put_queue.get()
             if isinstance(item, LocalBackendEndSignal):
@@ -114,7 +126,8 @@ class LMCLocalBackend(LMCBackendInterface):
         # Obtain keys to evict
         self.update_lock.acquire()
         evict_keys, put_status = self.evictor.update_on_put(
-            self.dict, self.mpool.size_per_chunk)
+            self.dict, self.mpool.size_per_chunk
+        )
         if put_status == PutStatus.ILLEGAL:
             self.update_lock.release()
             return
@@ -155,7 +168,8 @@ class LMCLocalBackend(LMCBackendInterface):
 
         # Obtain keys to evict
         evict_keys, put_status = self.evictor.update_on_put(
-            self.dict, self.mpool.size_per_chunk)
+            self.dict, self.mpool.size_per_chunk
+        )
 
         # Abort put if cache too big
         if put_status == PutStatus.ILLEGAL:
@@ -190,7 +204,7 @@ class LMCLocalBackend(LMCBackendInterface):
 
         Input:
             key: the key of the token chunk, including prefix hash and format
-            kv_chunk: the kv cache of the token chunk, in the format of nested 
+            kv_chunk: the kv cache of the token chunk, in the format of nested
             tuples
 
         Returns:
@@ -261,10 +275,12 @@ class LMCLocalDiskBackend(LMCBackendInterface):
     Cache engine for storing the KV cache of the tokens in the local disk.
     """
 
-    def __init__(self,
-                 config: LMCacheEngineConfig,
-                 metadata: LMCacheMemPoolMetadata,
-                 dst_device: str = "cuda"):
+    def __init__(
+        self,
+        config: LMCacheEngineConfig,
+        metadata: LMCacheMemPoolMetadata,
+        dst_device: str = "cuda",
+    ):
         """
         Throws:
             RuntimeError if the loaded configuration does not match the current
@@ -274,12 +290,12 @@ class LMCLocalDiskBackend(LMCBackendInterface):
 
         self.chunk_size = config.chunk_size
         self.config = config
-        self.dict: OrderedDict[CacheEngineKey,
-                               DiskCacheMetadata] = OrderedDict()
+        self.dict: OrderedDict[CacheEngineKey, DiskCacheMetadata] = OrderedDict()
         self.path = config.local_device
 
-        assert self.path is not None, ("Need to specify local path if when "
-                                       "using LMCLocalDiskBackend")
+        assert self.path is not None, (
+            "Need to specify local path if when " "using LMCLocalDiskBackend"
+        )
 
         if not os.path.exists(self.path):
             os.makedirs(self.path)
@@ -287,15 +303,14 @@ class LMCLocalDiskBackend(LMCBackendInterface):
         self.update_lock = threading.Lock()
 
         self.put_queue: queue.Queue[
-            Union[Tuple[CacheEngineKey, torch.Tensor],
-                  LocalBackendEndSignal]] = queue.Queue()
+            Union[Tuple[CacheEngineKey, torch.Tensor], LocalBackendEndSignal]
+        ] = queue.Queue()
         self.put_thread = threading.Thread(target=self.put_worker, args=())
         self.put_thread.start()
 
         self.future_pool: Dict[CacheEngineKey, Tuple[Future, KVObj]] = {}
         self.stop_event = threading.Event()
-        self.sweeper_thread = threading.Thread(target=self.buffer_sweeper,
-                                               args=())
+        self.sweeper_thread = threading.Thread(target=self.buffer_sweeper, args=())
         self.sweeper_thread.start()
 
         # TODO(Jiayi): The storage size and caching policy for both
@@ -356,7 +371,9 @@ class LMCLocalDiskBackend(LMCBackendInterface):
         os.remove(path)
 
     @_lmcache_nvtx_annotate
-    def put_worker(self, ):
+    def put_worker(
+        self,
+    ):
         while True:
             item = self.put_queue.get()
             if isinstance(item, LocalBackendEndSignal):
@@ -364,7 +381,9 @@ class LMCLocalDiskBackend(LMCBackendInterface):
             key, value = item
             self.put_nonblocking(key, value)
 
-    def buffer_sweeper(self, ):
+    def buffer_sweeper(
+        self,
+    ):
         """
         Sweep the future pool to free up memory.
         """
@@ -404,7 +423,8 @@ class LMCLocalDiskBackend(LMCBackendInterface):
 
         # Obtain keys to evict
         evict_keys, put_status = self.evictor.update_on_put(
-            self.dict, self.evictor.get_size(kv_chunk))
+            self.dict, self.evictor.get_size(kv_chunk)
+        )
 
         # Abort put if cache too big
         if put_status == PutStatus.ILLEGAL:
@@ -459,7 +479,8 @@ class LMCLocalDiskBackend(LMCBackendInterface):
         self.update_lock.acquire()
         # Obtain keys to evict
         evict_keys, put_status = self.evictor.update_on_put(
-            self.dict, self.evictor.get_size(kv_chunk))
+            self.dict, self.evictor.get_size(kv_chunk)
+        )
 
         # Abort put if cache too big
         if put_status == PutStatus.ILLEGAL:
@@ -476,8 +497,7 @@ class LMCLocalDiskBackend(LMCBackendInterface):
         save_file({"kv_chunk": kv_chunk}, path)
 
         self.update_lock.acquire()
-        self.dict[key] = DiskCacheMetadata(path,
-                                           self.evictor.get_size(kv_chunk))
+        self.dict[key] = DiskCacheMetadata(path, self.evictor.get_size(kv_chunk))
         self.update_lock.release()
 
     def put(
@@ -491,7 +511,7 @@ class LMCLocalDiskBackend(LMCBackendInterface):
 
         Input:
             key: the key of the token chunk, including prefix hash and format
-            kv_chunk: the kv cache of the token chunk, in the format of nested 
+            kv_chunk: the kv cache of the token chunk, in the format of nested
             tuples
 
         Returns:
@@ -541,8 +561,9 @@ class LMCLocalDiskBackend(LMCBackendInterface):
         path = self.dict[key].path
         self.evictor.update_on_get(key, self.dict)
 
-        with safe_open(path, framework="pt",
-                       device=self.dst_device) as f:  # type: ignore
+        with safe_open(
+            path, framework="pt", device=self.dst_device
+        ) as f:  # type: ignore
             kv_chunk = f.get_tensor("kv_chunk")
         self.update_lock.release()
         return kv_chunk

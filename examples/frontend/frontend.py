@@ -23,8 +23,8 @@ tokenizer = get_tokenizer()
 @st.cache_data
 def read_context() -> str:
     context_text = None
-    context_file = os.path.join(os.pardir, 'ffmpeg.txt')
-    with open(context_file, 'r') as f:
+    context_file = os.path.join(os.pardir, "ffmpeg.txt")
+    with open(context_file, "r") as f:
         context_text = f.read()
     assert context_text is not None
     return context_text
@@ -45,8 +45,9 @@ with st.sidebar:
 
     session.set_context([system_prompt] + [context])
     num_tokens = tokenizer.encode(session.get_context())
-    container.header(f"The context given to LLM: ({len(num_tokens)} tokens)",
-                     divider="grey")
+    container.header(
+        f"The context given to LLM: ({len(num_tokens)} tokens)", divider="grey"
+    )
     container.text(session.get_context())
 
     messages = st.container(height=400)

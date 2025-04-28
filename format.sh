@@ -33,6 +33,7 @@ check_command ruff
 check_command mypy
 check_command codespell
 check_command isort
+check_command black
 check_command clang-format
 
 YAPF_VERSION=$(yapf --version | awk '{print $2}')
@@ -40,6 +41,7 @@ RUFF_VERSION=$(ruff --version | awk '{print $2}')
 MYPY_VERSION=$(mypy --version | awk '{print $2}')
 CODESPELL_VERSION=$(codespell --version)
 ISORT_VERSION=$(isort --vn)
+BLACK_VERSION=$(black --version | grep black | awk '{print $2}')
 CLANGFORMAT_VERSION=$(clang-format --version | awk '{print $3}')
 
 # # params: tool name, tool version, required version
@@ -54,6 +56,7 @@ tool_version_check "yapf" $YAPF_VERSION "$(grep yapf requirements-lint.txt | cut
 tool_version_check "ruff" $RUFF_VERSION "$(grep "ruff==" requirements-lint.txt | cut -d'=' -f3)"
 tool_version_check "mypy" "$MYPY_VERSION" "$(grep mypy requirements-lint.txt | cut -d'=' -f3)"
 tool_version_check "isort" "$ISORT_VERSION" "$(grep isort requirements-lint.txt | cut -d'=' -f3)"
+tool_version_check "black" $BLACK_VERSION "$(grep black requirements-lint.txt | cut -d'=' -f3)"
 tool_version_check "codespell" "$CODESPELL_VERSION" "$(grep codespell requirements-lint.txt | cut -d'=' -f3)"
 tool_version_check "clang-format" "$CLANGFORMAT_VERSION" "$(grep clang-format requirements-lint.txt | cut -d'=' -f3)"
 
@@ -226,6 +229,16 @@ isort_check_changed() {
     fi
 }
 
+# Format specified files using Black
+black_check() {
+    black "$@"
+}
+
+# Format all files using Black
+black_check_all() {
+    black .
+}
+
 # Run Isort
 # This flag runs spell check of individual files. --files *must* be the first command line
 # arg to use this option.
@@ -241,9 +254,17 @@ else
 fi
 echo 'lmcache isort: Done'
 
+# Run Black
+if [[ "$1" == '--files' ]]; then
+   black_check "${@:2}"
+else
+   black_check_all
+fi
+echo 'lmcache black: Done'
+
 
 if ! git diff --quiet &>/dev/null; then
-    echo 
+    echo
     echo "🔍🔍There are files changed by the format checker or by you that are not added and committed:"
     git --no-pager diff --name-only
     echo "🔍🔍Format checker passed, but please add, commit and push all the files above to include changes made by the format checker."

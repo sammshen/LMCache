@@ -4,8 +4,9 @@ from typing import List, Optional, Tuple
 import redis
 
 from lmcache.experimental.config import LMCacheEngineConfig
-from lmcache.experimental.lookup_server.abstract_server import \
-    LookupServerInterface  # noqa: E501
+from lmcache.experimental.lookup_server.abstract_server import (
+    LookupServerInterface,
+)  # noqa: E501
 from lmcache.logging import init_logger
 from lmcache.utils import CacheEngineKey
 
@@ -25,11 +26,9 @@ class RedisLookupServer(LookupServerInterface):
         self.host = host
         self.port = int(port)
 
-        self.connection = redis.Redis(host=host,
-                                      port=port,
-                                      decode_responses=True)
+        self.connection = redis.Redis(host=host, port=port, decode_responses=True)
         logger.info(f"Connected to Redis lookup server at {host}:{port}")
-        #decode_responses=False)
+        # decode_responses=False)
 
     def lookup(self, key: CacheEngineKey) -> Optional[Tuple[str, int]]:
         """

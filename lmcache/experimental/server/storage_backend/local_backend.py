@@ -3,8 +3,9 @@ from collections import OrderedDict
 from typing import List, Optional
 
 from lmcache.experimental.protocol import ClientMetaMessage
-from lmcache.experimental.server.storage_backend.abstract_backend import \
-    LMSBackendInterface
+from lmcache.experimental.server.storage_backend.abstract_backend import (
+    LMSBackendInterface,
+)
 from lmcache.experimental.server.utils import LMSMemoryObj
 from lmcache.logging import init_logger
 from lmcache.utils import CacheEngineKey, _lmcache_nvtx_annotate
@@ -14,7 +15,9 @@ logger = init_logger(__name__)
 
 class LMSLocalBackend(LMSBackendInterface):
 
-    def __init__(self, ):
+    def __init__(
+        self,
+    ):
         self.dict: OrderedDict[CacheEngineKey, LMSMemoryObj] = OrderedDict()
 
         self.lock = threading.Lock()
@@ -72,5 +75,5 @@ class LMSLocalBackend(LMSBackendInterface):
 
 
 # TODO(Jiayi): please implement the remote disk backend
-#class LMSLocalDiskBackend(LMSBackendInterface):
+# class LMSLocalDiskBackend(LMSBackendInterface):
 #    pass

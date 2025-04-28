@@ -6,9 +6,16 @@ from copy import deepcopy
 
 import pytest
 import torch
-from utils import (check_kv_cache_equal, check_paged_kv_cache_equal,
-                   concatenate_kv_caches, create_gpu_connector, dumb_metadata,
-                   generate_kv_cache, generate_kv_cache_paged, generate_tokens)
+from utils import (
+    check_kv_cache_equal,
+    check_paged_kv_cache_equal,
+    concatenate_kv_caches,
+    create_gpu_connector,
+    dumb_metadata,
+    generate_kv_cache,
+    generate_kv_cache_paged,
+    generate_tokens,
+)
 
 from lmcache.experimental.cache_engine import LMCacheEngineBuilder
 from lmcache.experimental.config import LMCacheEngineConfig
@@ -29,24 +36,22 @@ def test_same_retrieve_store(autorelease_experimental):
     original_retrieved_cache = deepcopy(retrieved_cache)
 
     # Check the kv cache and the retrieval buffer are not the same
-    check_kv_cache_equal(retrieved_cache, original_retrieved_cache, num_tokens,
-                         fmt)
+    check_kv_cache_equal(retrieved_cache, original_retrieved_cache, num_tokens, fmt)
     with pytest.raises(AssertionError):
         check_kv_cache_equal(retrieved_cache, kv_cache, num_tokens, fmt)
     """ initialize the engine """
-    cfg = LMCacheEngineConfig.from_legacy(chunk_size=chunk_size,
-                                          remote_url=None)
+    cfg = LMCacheEngineConfig.from_legacy(chunk_size=chunk_size, remote_url=None)
 
     engine = autorelease_experimental(
-        LMCacheEngineBuilder.get_or_create("test", cfg,
-                                           dumb_metadata(fmt, kv_shape),
-                                           connector))
+        LMCacheEngineBuilder.get_or_create(
+            "test", cfg, dumb_metadata(fmt, kv_shape), connector
+        )
+    )
     """ test retrieve empty """
     ret_mask = engine.retrieve(tokens, kvcaches=retrieved_cache)
     length = torch.sum(ret_mask)
     assert length == 0
-    check_kv_cache_equal(retrieved_cache, original_retrieved_cache, num_tokens,
-                         fmt)
+    check_kv_cache_equal(retrieved_cache, original_retrieved_cache, num_tokens, fmt)
     """ test store """
     engine.store(tokens, kvcaches=kv_cache)
     """ Store is async. Need to wait for the store to finish """
@@ -68,14 +73,17 @@ def test_same_retrieve_store(autorelease_experimental):
 
 @pytest.mark.parametrize("fmt", ["vllm"])
 @pytest.mark.parametrize("chunk_size", [128, 256])
-@pytest.mark.parametrize("backend",
-                         ["cpu", "local_disk", "remote", "remote_cachegen"])
-@pytest.mark.parametrize("lmserver_experimental_process", ["cpu"],
-                         indirect=True)
+@pytest.mark.parametrize("backend", ["cpu", "local_disk", "remote", "remote_cachegen"])
+@pytest.mark.parametrize("lmserver_experimental_process", ["cpu"], indirect=True)
 @pytest.mark.parametrize("use_list", [True, False])
-def test_paged_retrieve_prefix(fmt, chunk_size, backend,
-                               lmserver_experimental_process, use_list,
-                               autorelease_experimental):
+def test_paged_retrieve_prefix(
+    fmt,
+    chunk_size,
+    backend,
+    lmserver_experimental_process,
+    use_list,
+    autorelease_experimental,
+):
     url = None
     remote_serde = None
     check_equality = True
@@ -97,33 +105,31 @@ def test_paged_retrieve_prefix(fmt, chunk_size, backend,
     connector = create_gpu_connector(1024, 32, paged=True, use_list=use_list)
 
     tokens = generate_tokens(num_tokens, device)
-    kv_cache = generate_kv_cache_paged(num_blocks,
-                                       device,
-                                       block_size,
-                                       dtype,
-                                       use_list=use_list)
+    kv_cache = generate_kv_cache_paged(
+        num_blocks, device, block_size, dtype, use_list=use_list
+    )
     new_tokens = generate_tokens(new_num_tokens, device)
-    retrieved_cache = generate_kv_cache_paged(num_blocks,
-                                              device,
-                                              block_size,
-                                              dtype,
-                                              use_list=True)
+    retrieved_cache = generate_kv_cache_paged(
+        num_blocks, device, block_size, dtype, use_list=True
+    )
     slot_mapping = random.sample(range(0, num_blocks * block_size), num_tokens)
     slot_mapping = torch.tensor(slot_mapping, device=device)
 
-    new_slot_mapping = random.sample(range(0, num_blocks * block_size),
-                                     new_num_tokens)
+    new_slot_mapping = random.sample(range(0, num_blocks * block_size), new_num_tokens)
     new_slot_mapping = torch.tensor(new_slot_mapping, device=device)
     """ initialize the engine """
-    cfg = LMCacheEngineConfig.from_legacy(chunk_size=chunk_size,
-                                          backend=backend,
-                                          remote_url=url,
-                                          remote_serde=remote_serde)
+    cfg = LMCacheEngineConfig.from_legacy(
+        chunk_size=chunk_size,
+        backend=backend,
+        remote_url=url,
+        remote_serde=remote_serde,
+    )
 
     engine = autorelease_experimental(
-        LMCacheEngineBuilder.get_or_create("test", cfg,
-                                           dumb_metadata(fmt, kv_shape),
-                                           connector))
+        LMCacheEngineBuilder.get_or_create(
+            "test", cfg, dumb_metadata(fmt, kv_shape), connector
+        )
+    )
     """ test store """
     t1 = time.perf_counter()
     engine.store(tokens, kvcaches=kv_cache, slot_mapping=slot_mapping)
@@ -149,10 +155,11 @@ def test_paged_retrieve_prefix(fmt, chunk_size, backend,
         time.sleep(0.01)
     """ test retrieve """
     t4 = time.perf_counter()
-    ret_mask = engine.retrieve(torch.cat([tokens, new_tokens]),
-                               kvcaches=retrieved_cache,
-                               slot_mapping=torch.cat(
-                                   [slot_mapping, new_slot_mapping]))
+    ret_mask = engine.retrieve(
+        torch.cat([tokens, new_tokens]),
+        kvcaches=retrieved_cache,
+        slot_mapping=torch.cat([slot_mapping, new_slot_mapping]),
+    )
 
     length = torch.sum(ret_mask)
     t5 = time.perf_counter()
@@ -179,11 +186,10 @@ def test_paged_retrieve_prefix(fmt, chunk_size, backend,
     "backend",
     ["cpu", "local_disk", "remote"],
 )
-@pytest.mark.parametrize("lmserver_experimental_process", ["cpu"],
-                         indirect=True)
-def test_paged_store_offset(fmt, chunk_size, backend,
-                            lmserver_experimental_process,
-                            autorelease_experimental):
+@pytest.mark.parametrize("lmserver_experimental_process", ["cpu"], indirect=True)
+def test_paged_store_offset(
+    fmt, chunk_size, backend, lmserver_experimental_process, autorelease_experimental
+):
     url = None
     if backend == "remote":
         url = lmserver_experimental_process.server_url
@@ -199,35 +205,35 @@ def test_paged_store_offset(fmt, chunk_size, backend,
 
     tokens = generate_tokens(num_total_tokens, device)
     kv_cache = generate_kv_cache_paged(num_blocks, device, block_size, dtype)
-    retrieved_cache = generate_kv_cache_paged(num_blocks, device, block_size,
-                                              dtype)
-    slot_mapping = random.sample(range(0, num_blocks * block_size),
-                                 num_total_tokens)
+    retrieved_cache = generate_kv_cache_paged(num_blocks, device, block_size, dtype)
+    slot_mapping = random.sample(range(0, num_blocks * block_size), num_total_tokens)
     slot_mapping = torch.tensor(slot_mapping, device=device)
     """ initialize the engine """
-    cfg = LMCacheEngineConfig.from_legacy(chunk_size=chunk_size,
-                                          backend=backend,
-                                          remote_url=url)
+    cfg = LMCacheEngineConfig.from_legacy(
+        chunk_size=chunk_size, backend=backend, remote_url=url
+    )
 
     engine = autorelease_experimental(
-        LMCacheEngineBuilder.get_or_create("test", cfg,
-                                           dumb_metadata(fmt, kv_shape),
-                                           connector))
+        LMCacheEngineBuilder.get_or_create(
+            "test", cfg, dumb_metadata(fmt, kv_shape), connector
+        )
+    )
     """ test store """
-    engine.store(tokens[:num_tokens],
-                 kvcaches=kv_cache,
-                 slot_mapping=slot_mapping[:num_tokens])
+    engine.store(
+        tokens[:num_tokens], kvcaches=kv_cache, slot_mapping=slot_mapping[:num_tokens]
+    )
 
     offset_chunk_cnt = num_tokens // chunk_size
     offset_length = offset_chunk_cnt * chunk_size
     mask = torch.ones(num_tokens + num_suffix_tokens, device=device)
     mask[:offset_length] = 0
-    engine.store(tokens[:num_tokens+num_suffix_tokens],
-                 kvcaches=kv_cache,
-                 mask=mask,
-                 slot_mapping=slot_mapping[offset_length: \
-                     num_tokens+num_suffix_tokens],
-                 offset=offset_length)
+    engine.store(
+        tokens[: num_tokens + num_suffix_tokens],
+        kvcaches=kv_cache,
+        mask=mask,
+        slot_mapping=slot_mapping[offset_length : num_tokens + num_suffix_tokens],
+        offset=offset_length,
+    )
     """ Compute expected length """
     expected_chunk_cnt = (num_tokens + num_suffix_tokens) // chunk_size
     expected_length = expected_chunk_cnt * chunk_size
@@ -237,16 +243,15 @@ def test_paged_store_offset(fmt, chunk_size, backend,
     elif backend == "local_disk":
         timeout = 30
     start_time = time.time()
-    while engine.lookup(tokens[:num_tokens+num_suffix_tokens])\
-        < expected_length:
+    while engine.lookup(tokens[: num_tokens + num_suffix_tokens]) < expected_length:
         if time.time() - start_time > timeout:
             raise TimeoutError(f"Operation timed out after {timeout} seconds.")
         time.sleep(0.01)
     """ test retrieve """
     t4 = time.perf_counter()
-    ret_mask = engine.retrieve(tokens,
-                               kvcaches=retrieved_cache,
-                               slot_mapping=slot_mapping)
+    ret_mask = engine.retrieve(
+        tokens, kvcaches=retrieved_cache, slot_mapping=slot_mapping
+    )
 
     length = torch.sum(ret_mask)
     t5 = time.perf_counter()
@@ -266,13 +271,14 @@ def test_paged_store_offset(fmt, chunk_size, backend,
 
 
 @pytest.mark.parametrize("fmt", ["vllm"])
-@pytest.mark.parametrize("chunk_size", [128])  #, 256])
+@pytest.mark.parametrize("chunk_size", [128])  # , 256])
 @pytest.mark.parametrize(
     "backend",
     [
-        #"cpu",
+        # "cpu",
         "local_disk"
-    ])
+    ],
+)
 def test_mixed_retrieve(fmt, chunk_size, backend, autorelease_experimental):
     device = "cuda"
     num_tokens = 2000
@@ -285,16 +291,15 @@ def test_mixed_retrieve(fmt, chunk_size, backend, autorelease_experimental):
     kv_cache = generate_kv_cache(num_tokens, fmt, device)
     new_tokens = generate_tokens(new_num_tokens, device)
     new_kv_cache = generate_kv_cache(new_num_tokens, fmt, device)
-    retrieved_cache = generate_kv_cache(num_tokens + new_num_tokens, fmt,
-                                        device)
+    retrieved_cache = generate_kv_cache(num_tokens + new_num_tokens, fmt, device)
     """ initialize the engine """
-    cfg = LMCacheEngineConfig.from_legacy(chunk_size=chunk_size,
-                                          backend=backend)
+    cfg = LMCacheEngineConfig.from_legacy(chunk_size=chunk_size, backend=backend)
 
     engine = autorelease_experimental(
-        LMCacheEngineBuilder.get_or_create("test", cfg,
-                                           dumb_metadata(fmt, kv_shape),
-                                           connector))
+        LMCacheEngineBuilder.get_or_create(
+            "test", cfg, dumb_metadata(fmt, kv_shape), connector
+        )
+    )
     """ test store """
     engine.store(tokens, kvcaches=kv_cache)
     engine.store(new_tokens, kvcaches=new_kv_cache)
@@ -313,8 +318,9 @@ def test_mixed_retrieve(fmt, chunk_size, backend, autorelease_experimental):
             raise TimeoutError(f"Operation timed out after {timeout} seconds.")
         time.sleep(0.01)
     """ test retrieve """
-    ret_mask = engine.retrieve(torch.cat([tokens, new_tokens]),
-                               kvcaches=retrieved_cache)
+    ret_mask = engine.retrieve(
+        torch.cat([tokens, new_tokens]), kvcaches=retrieved_cache
+    )
     length = torch.sum(ret_mask)
     assert length == expected_length
     check_kv_cache_equal(retrieved_cache, kv_cache, expected_length, fmt)
@@ -333,13 +339,15 @@ def test_mixed_retrieve(fmt, chunk_size, backend, autorelease_experimental):
     """ insert the mixed kv cache """
     final_tokens = torch.cat([tokens, new_tokens])
     final_kv_cache = concatenate_kv_caches(
-        [kv_cache, generate_kv_cache(new_num_tokens, fmt, device)], fmt)
+        [kv_cache, generate_kv_cache(new_num_tokens, fmt, device)], fmt
+    )
     engine.store(final_tokens, kvcaches=final_kv_cache)
     """Wait until store finishes"""
     expected_length = num_tokens + new_num_tokens
     start_time = time.time()
-    while engine.lookup(torch.cat([tokens, new_tokens]),
-                        search_range) < expected_length:
+    while (
+        engine.lookup(torch.cat([tokens, new_tokens]), search_range) < expected_length
+    ):
         if time.time() - start_time > timeout:
             raise TimeoutError(f"Operation timed out after {timeout} seconds.")
         time.sleep(0.01)
@@ -353,7 +361,7 @@ def test_mixed_retrieve(fmt, chunk_size, backend, autorelease_experimental):
     if backend in ["local_disk"]:
         subprocess.run(shlex.split("rm -rf /local/disk_test/local_disk/"))
 
-    #engine.close()
+    # engine.close()
     LMCacheEngineBuilder.destroy("test")
 
 
@@ -375,10 +383,11 @@ def test_store_kv_tensors_mask(fmt, autorelease_experimental):
     cfg = LMCacheEngineConfig.from_legacy(chunk_size=chunk_size)
 
     engine = autorelease_experimental(
-        LMCacheEngineBuilder.get_or_create("test", cfg,
-                                           dumb_metadata(fmt, kv_shape),
-                                           connector))
-    ''' Store some tokens with mask '''
+        LMCacheEngineBuilder.get_or_create(
+            "test", cfg, dumb_metadata(fmt, kv_shape), connector
+        )
+    )
+    """ Store some tokens with mask """
     engine.store(tokens, kvcaches=kv_cache)
     """Wait until store finishes"""
     timeout = 1
@@ -389,9 +398,10 @@ def test_store_kv_tensors_mask(fmt, autorelease_experimental):
         time.sleep(0.01)
 
     prefix_length = engine.lookup(tokens)
-    assert prefix_length == num_tokens, \
-        f"Expected {num_tokens} prefix tokens, but got {prefix_length}"
-    ''' Store more tokens '''
+    assert (
+        prefix_length == num_tokens
+    ), f"Expected {num_tokens} prefix tokens, but got {prefix_length}"
+    """ Store more tokens """
     prefix_length = engine.lookup(final_tokens)
     kv_tensor_mask = torch.ones_like(final_tokens, dtype=torch.bool)
     kv_tensor_mask[:prefix_length] = False
@@ -408,41 +418,39 @@ def test_store_kv_tensors_mask(fmt, autorelease_experimental):
         time.sleep(0.01)
 
     prefix_length = engine.lookup(final_tokens)
-    assert prefix_length == num_tokens + new_num_tokens, \
-        f"Expected {num_tokens + new_num_tokens} prefix tokens,"\
-            f" but got {prefix_length}"
-    ''' retrieve the whole cache '''
-    retrieved_cache = generate_kv_cache(num_tokens + new_num_tokens, fmt,
-                                        device)
+    assert prefix_length == num_tokens + new_num_tokens, (
+        f"Expected {num_tokens + new_num_tokens} prefix tokens,"
+        f" but got {prefix_length}"
+    )
+    """ retrieve the whole cache """
+    retrieved_cache = generate_kv_cache(num_tokens + new_num_tokens, fmt, device)
     ret_mask = engine.retrieve(final_tokens, kvcaches=retrieved_cache)
     length = torch.sum(ret_mask)
     assert length == num_tokens + new_num_tokens
-    check_kv_cache_equal(retrieved_cache,
-                         concatenate_kv_caches([kv_cache, more_kv_cache], fmt),
-                         num_tokens, fmt)
-    ''' retrieve cache with some mask:
-    '''
+    check_kv_cache_equal(
+        retrieved_cache,
+        concatenate_kv_caches([kv_cache, more_kv_cache], fmt),
+        num_tokens,
+        fmt,
+    )
+    """ retrieve cache with some mask:
+    """
     num_falses = chunk_size * 3
     mask = torch.ones_like(final_tokens, dtype=torch.bool)
     mask[:num_falses] = False
-    retrieved_cache = generate_kv_cache(num_tokens + new_num_tokens, fmt,
-                                        device)
-    ret_mask = engine.retrieve(final_tokens,
-                               mask=mask,
-                               kvcaches=retrieved_cache)
+    retrieved_cache = generate_kv_cache(num_tokens + new_num_tokens, fmt, device)
+    ret_mask = engine.retrieve(final_tokens, mask=mask, kvcaches=retrieved_cache)
     length = torch.sum(ret_mask)
     assert length == num_tokens + new_num_tokens - num_falses
     final_kv_cache = concatenate_kv_caches([kv_cache, more_kv_cache], fmt)
 
     with pytest.raises(AssertionError):
         check_kv_cache_equal(retrieved_cache, final_kv_cache, num_tokens, fmt)
-    check_kv_cache_equal(retrieved_cache,
-                         final_kv_cache,
-                         num_tokens - num_falses,
-                         fmt,
-                         offset=num_falses)
+    check_kv_cache_equal(
+        retrieved_cache, final_kv_cache, num_tokens - num_falses, fmt, offset=num_falses
+    )
 
-    mask[:num_falses + 5] = False
+    mask[: num_falses + 5] = False
     with pytest.raises(ValueError):
         engine.retrieve(final_tokens, mask=mask, kvcaches=retrieved_cache)
 
@@ -465,11 +473,15 @@ def test_store_kv_tensors_mask(fmt, autorelease_experimental):
         "remote",
     ],
 )
-@pytest.mark.parametrize("lmserver_experimental_process", ["cpu"],
-                         indirect=True)
-def test_hierarchy_retrieve(fmt, chunk_size, backend, retrieve_from,
-                            lmserver_experimental_process,
-                            autorelease_experimental):
+@pytest.mark.parametrize("lmserver_experimental_process", ["cpu"], indirect=True)
+def test_hierarchy_retrieve(
+    fmt,
+    chunk_size,
+    backend,
+    retrieve_from,
+    lmserver_experimental_process,
+    autorelease_experimental,
+):
     url = None
     if backend == "local_cpu_disk_remote":
         url = lmserver_experimental_process.server_url
@@ -482,17 +494,17 @@ def test_hierarchy_retrieve(fmt, chunk_size, backend, retrieve_from,
     tokens = generate_tokens(num_tokens, device)
     kv_cache = generate_kv_cache(num_tokens, fmt, device)
     new_tokens = generate_tokens(new_num_tokens, device)
-    retrieved_cache = generate_kv_cache(new_num_tokens + num_tokens, fmt,
-                                        device)
+    retrieved_cache = generate_kv_cache(new_num_tokens + num_tokens, fmt, device)
     """ initialize the engine """
-    cfg = LMCacheEngineConfig.from_legacy(chunk_size=chunk_size,
-                                          backend=backend,
-                                          remote_url=url)
+    cfg = LMCacheEngineConfig.from_legacy(
+        chunk_size=chunk_size, backend=backend, remote_url=url
+    )
 
     engine = autorelease_experimental(
-        LMCacheEngineBuilder.get_or_create("test", cfg,
-                                           dumb_metadata(fmt, kv_shape),
-                                           connector))
+        LMCacheEngineBuilder.get_or_create(
+            "test", cfg, dumb_metadata(fmt, kv_shape), connector
+        )
+    )
     """ test store """
     t1 = time.perf_counter()
     engine.store(tokens, kvcaches=kv_cache)
@@ -515,25 +527,23 @@ def test_hierarchy_retrieve(fmt, chunk_size, backend, retrieve_from,
         start_time = time.time()
         while engine.lookup(tokens, ["LocalDiskBackend"]) < expected_length:
             if time.time() - start_time > timeout:
-                raise TimeoutError(
-                    f"Operation timed out after {timeout} seconds.")
+                raise TimeoutError(f"Operation timed out after {timeout} seconds.")
             time.sleep(0.01)
     """ Wait until remote save is finished """
     if retrieve_from == "remote":
         engine.storage_manager.hot_cache.clear()
-        engine.storage_manager.storage_backends["LocalDiskBackend"].dict.clear(
-        )
+        engine.storage_manager.storage_backends["LocalDiskBackend"].dict.clear()
         timeout = 30
         start_time = time.time()
         while engine.lookup(tokens, ["RemoteBackend"]) < expected_length:
             if time.time() - start_time > timeout:
-                raise TimeoutError(
-                    f"Operation timed out after {timeout} seconds.")
+                raise TimeoutError(f"Operation timed out after {timeout} seconds.")
             time.sleep(0.01)
     """ test retrieve """
     t4 = time.perf_counter()
-    ret_mask = engine.retrieve(torch.cat([tokens, new_tokens]),
-                               kvcaches=retrieved_cache)
+    ret_mask = engine.retrieve(
+        torch.cat([tokens, new_tokens]), kvcaches=retrieved_cache
+    )
 
     length = torch.sum(ret_mask)
     t5 = time.perf_counter()
@@ -548,8 +558,7 @@ def test_hierarchy_retrieve(fmt, chunk_size, backend, retrieve_from,
         start_time = time.time()
         while engine.lookup(tokens) < expected_length:
             if time.time() - start_time > timeout:
-                raise TimeoutError(
-                    f"Operation timed out after {timeout} seconds.")
+                raise TimeoutError(f"Operation timed out after {timeout} seconds.")
             time.sleep(0.01)
 
     if backend in ["local_cpu_disk"]:
@@ -580,16 +589,15 @@ def test_prefetch_retrieve(backend, prefetch_from, autorelease_experimental):
     tokens = generate_tokens(num_tokens, device)
     kv_cache = generate_kv_cache(num_tokens, fmt, device)
     new_tokens = generate_tokens(new_num_tokens, device)
-    retrieved_cache = generate_kv_cache(new_num_tokens + num_tokens, fmt,
-                                        device)
+    retrieved_cache = generate_kv_cache(new_num_tokens + num_tokens, fmt, device)
     """ initialize the engine """
-    cfg = LMCacheEngineConfig.from_legacy(chunk_size=chunk_size,
-                                          backend=backend)
+    cfg = LMCacheEngineConfig.from_legacy(chunk_size=chunk_size, backend=backend)
 
     engine = autorelease_experimental(
-        LMCacheEngineBuilder.get_or_create("test", cfg,
-                                           dumb_metadata(fmt, kv_shape),
-                                           connector))
+        LMCacheEngineBuilder.get_or_create(
+            "test", cfg, dumb_metadata(fmt, kv_shape), connector
+        )
+    )
     """ test store """
     t1 = time.perf_counter()
     engine.store(tokens, kvcaches=kv_cache)
@@ -612,8 +620,7 @@ def test_prefetch_retrieve(backend, prefetch_from, autorelease_experimental):
         start_time = time.time()
         while engine.lookup(tokens) < expected_length:
             if time.time() - start_time > timeout:
-                raise TimeoutError(
-                    f"Operation timed out after {timeout} seconds.")
+                raise TimeoutError(f"Operation timed out after {timeout} seconds.")
             time.sleep(0.1)
     """ Wait until disk load (prefetch) finishes and delete disk cache"""
     engine.prefetch(torch.cat([tokens, new_tokens]))
@@ -621,18 +628,16 @@ def test_prefetch_retrieve(backend, prefetch_from, autorelease_experimental):
     if prefetch_from == "local_disk":
         timeout = 60
         start_time = time.time()
-        while engine.lookup(torch.cat([tokens, new_tokens]),
-                            ["Hot"]) < expected_length:
+        while engine.lookup(torch.cat([tokens, new_tokens]), ["Hot"]) < expected_length:
             if time.time() - start_time > timeout:
-                raise TimeoutError(
-                    f"Operation timed out after {timeout} seconds.")
+                raise TimeoutError(f"Operation timed out after {timeout} seconds.")
             time.sleep(0.01)
-        engine.storage_manager.storage_backends["LocalDiskBackend"].dict.clear(
-        )
+        engine.storage_manager.storage_backends["LocalDiskBackend"].dict.clear()
     """ test retrieve """
     t4 = time.perf_counter()
-    ret_mask = engine.retrieve(torch.cat([tokens, new_tokens]),
-                               kvcaches=retrieved_cache)
+    ret_mask = engine.retrieve(
+        torch.cat([tokens, new_tokens]), kvcaches=retrieved_cache
+    )
 
     length = torch.sum(ret_mask)
     t5 = time.perf_counter()
@@ -658,10 +663,10 @@ def test_prefetch_retrieve(backend, prefetch_from, autorelease_experimental):
         "local_cpu_disk_remote",
     ],
 )
-@pytest.mark.parametrize("lmserver_experimental_process", ["cpu"],
-                         indirect=True)
-def test_mem_leak(fmt, chunk_size, backend, lmserver_experimental_process,
-                  autorelease_experimental):
+@pytest.mark.parametrize("lmserver_experimental_process", ["cpu"], indirect=True)
+def test_mem_leak(
+    fmt, chunk_size, backend, lmserver_experimental_process, autorelease_experimental
+):
     url = None
     if "remote" in backend:
         url = lmserver_experimental_process.server_url
@@ -679,45 +684,42 @@ def test_mem_leak(fmt, chunk_size, backend, lmserver_experimental_process,
     slot_mapping = random.sample(range(0, num_blocks * block_size), num_tokens)
     slot_mapping = torch.tensor(slot_mapping, device=device)
     """ initialize the engine """
-    cfg = LMCacheEngineConfig.from_legacy(chunk_size=chunk_size,
-                                          backend=backend,
-                                          remote_url=url)
+    cfg = LMCacheEngineConfig.from_legacy(
+        chunk_size=chunk_size, backend=backend, remote_url=url
+    )
 
     engine = autorelease_experimental(
-        LMCacheEngineBuilder.get_or_create("test", cfg,
-                                           dumb_metadata(fmt, kv_shape),
-                                           connector))
+        LMCacheEngineBuilder.get_or_create(
+            "test", cfg, dumb_metadata(fmt, kv_shape), connector
+        )
+    )
 
     engine.store(tokens, kvcaches=kv_cache, slot_mapping=slot_mapping)
 
     expected_length = 2000
     timeout = 30
-    '''Wait until cpu store finishes'''
+    """Wait until cpu store finishes"""
     if "cpu" in backend:
         start_time = time.time()
         while engine.lookup(tokens, ["Hot"]) < expected_length:
             if time.time() - start_time > timeout:
-                raise TimeoutError(
-                    f"Operation timed out after {timeout} seconds.")
+                raise TimeoutError(f"Operation timed out after {timeout} seconds.")
             time.sleep(0.01)
-    '''Wait until disk store finishes'''
+    """Wait until disk store finishes"""
     if "disk" in backend:
         start_time = time.time()
         while engine.lookup(tokens, ["LocalDiskBackend"]) < expected_length:
             if time.time() - start_time > timeout:
-                raise TimeoutError(
-                    f"Operation timed out after {timeout} seconds.")
+                raise TimeoutError(f"Operation timed out after {timeout} seconds.")
             time.sleep(0.01)
 
     if "remote" in backend:
         start_time = time.time()
         while engine.lookup(tokens, ["RemoteBackend"]) < expected_length:
             if time.time() - start_time > timeout:
-                raise TimeoutError(
-                    f"Operation timed out after {timeout} seconds.")
+                raise TimeoutError(f"Operation timed out after {timeout} seconds.")
             time.sleep(0.01)
-    tensor_memory_allocator = \
-        engine.storage_manager.memory_allocator.pin_allocator
+    tensor_memory_allocator = engine.storage_manager.memory_allocator.pin_allocator
     if "cpu" not in backend:
         assert tensor_memory_allocator.total_allocated_size == 0
     else:
@@ -737,11 +739,11 @@ def test_builder(autorelease_experimental):
     assert should_be_none is None
 
     _engine = autorelease_experimental(
-        LMCacheEngineBuilder.get_or_create(instance_id, cfg, dumb_metadata(),
-                                           connector))
-    _engine2 = autorelease_experimental(
-        LMCacheEngineBuilder.get(instance_id))  # noqa
+        LMCacheEngineBuilder.get_or_create(instance_id, cfg, dumb_metadata(), connector)
+    )
+    _engine2 = autorelease_experimental(LMCacheEngineBuilder.get(instance_id))  # noqa
 
     with pytest.raises(ValueError):
-        LMCacheEngineBuilder.get_or_create(instance_id, cfg2, dumb_metadata(),
-                                           connector)
+        LMCacheEngineBuilder.get_or_create(
+            instance_id, cfg2, dumb_metadata(), connector
+        )

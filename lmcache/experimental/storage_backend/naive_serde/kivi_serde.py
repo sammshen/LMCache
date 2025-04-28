@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from lmcache.experimental.memory_management import (MemoryAllocatorInterface,
-                                                    MemoryObj)
+from lmcache.experimental.memory_management import MemoryAllocatorInterface, MemoryObj
 from lmcache.experimental.storage_backend.naive_serde.serde import (
-    Deserializer, Serializer)
+    Deserializer,
+    Serializer,
+)
 
 
 class KIVISerializer(Serializer):

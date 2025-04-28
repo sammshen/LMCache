@@ -2,7 +2,9 @@ from collections import OrderedDict
 from typing import List, Tuple, Union
 
 from lmcache.experimental.storage_backend.evictor.base_evictor import (
-    BaseEvictor, PutStatus)
+    BaseEvictor,
+    PutStatus,
+)
 from lmcache.logging import init_logger
 from lmcache.utils import CacheEngineKey
 
@@ -22,13 +24,14 @@ class LRUEvictor(BaseEvictor):
         # current storage size (in bytes)
         self.current_cache_size = 0.0
 
-    def update_on_hit(self, key: Union[CacheEngineKey, str],
-                      cache_dict: OrderedDict) -> None:
+    def update_on_hit(
+        self, key: Union[CacheEngineKey, str], cache_dict: OrderedDict
+    ) -> None:
         cache_dict.move_to_end(key)
 
     def update_on_put(
-            self, cache_dict: OrderedDict,
-            cache_size: int) -> Tuple[List[CacheEngineKey], PutStatus]:
+        self, cache_dict: OrderedDict, cache_size: int
+    ) -> Tuple[List[CacheEngineKey], PutStatus]:
         evict_keys = []
         iter_cache_dict = iter(cache_dict)
 
@@ -37,8 +40,7 @@ class LRUEvictor(BaseEvictor):
             return [], PutStatus.ILLEGAL
 
         # evict cache until there's enough space
-        while cache_size + self.current_cache_size > \
-            self.MAX_CACHE_SIZE:
+        while cache_size + self.current_cache_size > self.MAX_CACHE_SIZE:
             evict_key = next(iter_cache_dict)
             evict_cache_size = cache_dict[evict_key].size
             self.current_cache_size -= evict_cache_size
@@ -50,5 +52,6 @@ class LRUEvictor(BaseEvictor):
             logger.debug(
                 f"Evicting {len(evict_keys)} chunks, "
                 f"Current cache size: {self.current_cache_size} bytes, "
-                f"Max cache size: {self.MAX_CACHE_SIZE} bytes")
+                f"Max cache size: {self.MAX_CACHE_SIZE} bytes"
+            )
         return evict_keys, PutStatus.LEGAL

@@ -14,11 +14,12 @@
 
 from typing import List, Optional, no_type_check
 
-from lmcache.experimental.memory_management import (MemoryAllocatorInterface,
-                                                    MemoryObj)
+from lmcache.experimental.memory_management import MemoryAllocatorInterface, MemoryObj
+
 # reuse
-from lmcache.experimental.storage_backend.connector.base_connector import \
-    RemoteConnector
+from lmcache.experimental.storage_backend.connector.base_connector import (
+    RemoteConnector,
+)
 from lmcache.logging import init_logger
 from lmcache.utils import CacheEngineKey
 

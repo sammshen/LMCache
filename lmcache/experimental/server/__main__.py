@@ -5,8 +5,11 @@ import time
 import torch
 
 from lmcache.experimental.memory_management import MemoryFormat
-from lmcache.experimental.protocol import (ClientMetaMessage, Constants,
-                                           ServerMetaMessage)
+from lmcache.experimental.protocol import (
+    ClientMetaMessage,
+    Constants,
+    ServerMetaMessage,
+)
 from lmcache.experimental.server.storage_backend import CreateStorageBackend
 
 
@@ -33,8 +36,7 @@ class LMCacheServer:
     def handle_client(self, client_socket):
         try:
             while True:
-                header = self.receive_all(client_socket,
-                                          ClientMetaMessage.packlength())
+                header = self.receive_all(client_socket, ClientMetaMessage.packlength())
                 if not header:
                     break
                 meta = ClientMetaMessage.deserialize(header)
@@ -48,7 +50,8 @@ class LMCacheServer:
                         t2 = time.perf_counter()
                         print(
                             f"Time to receive data: {t1 - t0}, time to store "
-                            f"data: {t2 - t1}")
+                            f"data: {t2 - t1}"
+                        )
 
                     case Constants.CLIENT_GET:
                         t0 = time.perf_counter()
@@ -62,7 +65,8 @@ class LMCacheServer:
                                     lms_memory_obj.fmt,
                                     lms_memory_obj.dtype,
                                     lms_memory_obj.shape,
-                                ).serialize())
+                                ).serialize()
+                            )
                             t2 = time.perf_counter()
                             client_socket.sendall(lms_memory_obj.data)
                             t3 = time.perf_counter()
@@ -72,22 +76,31 @@ class LMCacheServer:
                             )
                         else:
                             client_socket.sendall(
-                                ServerMetaMessage(Constants.SERVER_FAIL, 0,
-                                                  MemoryFormat(1),
-                                                  torch.float16,
-                                                  torch.Size((0, 0, 0,
-                                                              0))).serialize())
+                                ServerMetaMessage(
+                                    Constants.SERVER_FAIL,
+                                    0,
+                                    MemoryFormat(1),
+                                    torch.float16,
+                                    torch.Size((0, 0, 0, 0)),
+                                ).serialize()
+                            )
 
                     case Constants.CLIENT_EXIST:
 
-                        code = (Constants.SERVER_SUCCESS
-                                if meta.key in self.data_store.list_keys() else
-                                Constants.SERVER_FAIL)
+                        code = (
+                            Constants.SERVER_SUCCESS
+                            if meta.key in self.data_store.list_keys()
+                            else Constants.SERVER_FAIL
+                        )
                         client_socket.sendall(
-                            ServerMetaMessage(code, 0, MemoryFormat(1),
-                                              torch.float16,
-                                              torch.Size(
-                                                  (0, 0, 0, 0))).serialize())
+                            ServerMetaMessage(
+                                code,
+                                0,
+                                MemoryFormat(1),
+                                torch.float16,
+                                torch.Size((0, 0, 0, 0)),
+                            ).serialize()
+                        )
 
                     # TODO(Jiayi): Implement List
                     # case Constants.CLIENT_LIST:
@@ -107,8 +120,9 @@ class LMCacheServer:
             while True:
                 client_socket, addr = self.server_socket.accept()
                 print(f"Connected by {addr}")
-                threading.Thread(target=self.handle_client,
-                                 args=(client_socket, )).start()
+                threading.Thread(
+                    target=self.handle_client, args=(client_socket,)
+                ).start()
         finally:
             self.server_socket.close()
 

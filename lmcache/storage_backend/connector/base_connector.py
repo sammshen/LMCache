@@ -102,8 +102,7 @@ class RemoteConnectorDebugWrapper(RemoteConnector):
         end = time.perf_counter()
 
         if ret is None or len(ret) == 0:
-            logger.debug(
-                "Didn't get any data from the remote backend, key is {key}")
+            logger.debug("Didn't get any data from the remote backend, key is {key}")
             return None
 
         if check_connector_type(self.connector) == ConnectorType.BYTES:
@@ -160,4 +159,4 @@ def check_connector_type(connector: RemoteConnector) -> ConnectorType:
         # TODO: avoid possible recursive deadlock
         return check_connector_type(connector.connector)
 
-    raise ValueError('Unsupported connector type')
+    raise ValueError("Unsupported connector type")

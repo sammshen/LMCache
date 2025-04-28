@@ -1,10 +1,10 @@
 import os
 from typing import Union
 
-from lmcache.config import \
-    LMCacheEngineConfig as Config  # type: ignore[assignment]
-from lmcache.experimental.config import \
-    LMCacheEngineConfig as ExperimentalConfig  # type: ignore[assignment]
+from lmcache.config import LMCacheEngineConfig as Config  # type: ignore[assignment]
+from lmcache.experimental.config import (
+    LMCacheEngineConfig as ExperimentalConfig,
+)  # type: ignore[assignment]
 from lmcache.logging import init_logger
 
 logger = init_logger(__name__)
@@ -22,10 +22,14 @@ def lmcache_get_config() -> Union[Config, ExperimentalConfig]:
     else:
         LMCacheEngineConfig = Config  # type: ignore
     if "LMCACHE_CONFIG_FILE" not in os.environ:
-        logger.warn("No LMCache configuration file is set. Trying to read"
-                    " configurations from the environment variables.")
-        logger.warn("You can set the configuration file through "
-                    "the environment variable: LMCACHE_CONFIG_FILE")
+        logger.warn(
+            "No LMCache configuration file is set. Trying to read"
+            " configurations from the environment variables."
+        )
+        logger.warn(
+            "You can set the configuration file through "
+            "the environment variable: LMCACHE_CONFIG_FILE"
+        )
         config = LMCacheEngineConfig.from_env()
     else:
         config_file = os.environ["LMCACHE_CONFIG_FILE"]
