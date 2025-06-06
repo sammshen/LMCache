@@ -18,12 +18,6 @@ echo "   Output: $OUTPUT_FILE"
 echo "   Max model length: $MAX_MODEL_LEN"
 echo "   MLA disabled: $VLLM_MLA_DISABLE"
 
-# Clean up any existing containers on port 8000
-echo "🧹 Cleaning up any existing containers on port 8000..."
-sudo docker ps -q --filter "publish=8000" | xargs -r sudo docker kill
-sudo docker ps -aq --filter "publish=8000" | xargs -r sudo docker rm
-sleep 5
-
 # HF_TOKEN and IMAGE should be set in the environment before running this script
 CONTAINER_ID=$(sudo docker run -d --runtime=nvidia --gpus all \
     --env "HF_TOKEN=$HF_TOKEN" \
@@ -46,44 +40,22 @@ CONTAINER_ID=$(sudo docker run -d --runtime=nvidia --gpus all \
 
 echo "Started container: $CONTAINER_ID"
 
-# Check if container started successfully
-sleep 5
-if ! sudo docker ps -q --filter "id=$CONTAINER_ID" | grep -q .; then
-    echo "❌ Container failed to start. Checking logs..."
-    sudo docker logs $CONTAINER_ID
-    exit 1
-fi
-
 # Start 10-minute self-destruct
 (sleep 600 && echo "Timeout reached, force killing container..." && sudo docker kill $CONTAINER_ID) &
 TIMER_PID=$!
 
-# Wait longer for model loading
-echo "⏳ Waiting for model to load (this may take a few minutes)..."
-sleep 120
-
-# Wait until the vLLM server is ready AND the model is loaded
-echo "🔍 Checking server health..."
+sleep 60
+# Wait until the vLLM server is ready
 until curl --fail http://localhost:8000/health; do
   if ! sudo docker ps -q --filter "id=$CONTAINER_ID" | grep -q .; then
     echo "❌ vLLM server container exited prematurely"
     exit 1
   fi
   echo "Waiting for vLLM server to become ready..."
-  sleep 10
+  sleep 5
 done
 
-echo "🔍 Checking if model is loaded..."
-until curl --fail -s http://localhost:8000/v1/models | grep -q "$MODEL"; do
-  if ! sudo docker ps -q --filter "id=$CONTAINER_ID" | grep -q .; then
-    echo "❌ vLLM server container exited prematurely"
-    exit 1
-  fi
-  echo "Waiting for model $MODEL to be loaded..."
-  sleep 10
-done
-
-echo "✅ LMCache server is ready and model is loaded"
+echo "✅ LMCache server is ready"
 
 # Step 2: Run mmlu_bench.py
 
@@ -109,7 +81,8 @@ echo "✅ MMLU data found. Test subjects: $(ls data/test/*.csv | wc -l)"
 python3 .buildkite/correctness/mmlu_bench.py \
   --nsub 12 \
   --parallel 1 \
-  --debug \
+  --deterministic \
+  --seed 42 \
   --model "$MODEL" \
   > mmlu-results/$OUTPUT_FILE || true
 
