@@ -2,8 +2,23 @@ agents:
   queue: "shaoting-gcp"
 
 steps:
+  - label: ":gear: Setup Environment"
+    key: "setup"
+    commands:
+      - bash .buildkite/correctness/env-setup.sh
+    plugins:
+      - cache#v1.5.2:
+          key: "venv-mmlu-{{ checksum \"requirements/common.txt\" }}-{{ checksum \"requirements/build.txt\" }}-{{ checksum \".buildkite/correctness/env-setup.sh\" }}"
+          path: ".buildkite/correctness/.venv"
+          save: "pipeline"
+
   - label: "Run full E2E Correctness Test"
     key: "full-e2e"
+    depends_on: "setup"
     commands:
       - bash .buildkite/correctness/e2e.sh
       - buildkite-agent artifact upload ".buildkite/correctness/results-*.png"
+    plugins:
+      - cache#v1.5.2:
+          key: "venv-mmlu-{{ checksum \"requirements/common.txt\" }}-{{ checksum \"requirements/build.txt\" }}-{{ checksum \".buildkite/correctness/env-setup.sh\" }}"
+          path: ".buildkite/correctness/.venv"

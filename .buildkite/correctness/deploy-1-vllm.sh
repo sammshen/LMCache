@@ -5,6 +5,7 @@
 # Overview:
 # This script is used to deploy a single vLLM serving engine on port 8000
 
+
 # Arguments:
 MODEL_URL=$1
 
@@ -32,7 +33,8 @@ free_port() {
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd $SCRIPT_DIR
 
-source correctness_venv/bin/activate
+# ASSUMPTIONS: env-setup.sh has been run
+source .venv/bin/activate
 
 # Deploy the vllm serving engine (without LMCache)
 

@@ -9,8 +9,10 @@ cd $SCRIPT_DIR
 
 # Clean up the environment
 # This is necessary because we are installing pre-release wheels of LMCache. Thus, if we do not clean up the environment, we will accumulate a lot of disk space. 
+# Deactivate the virtual environment if it is active. Do **not** delete the
+# `.venv` directory so that the Buildkite cache plugin can persist it across
+# pipeline steps.
 deactivate || true # || true in case we are not in the venv
-rm -rf correctness_venv || true # || true in case the venv does not exist
 
 # In case pip installed the packages in cache as well
 pip cache purge
