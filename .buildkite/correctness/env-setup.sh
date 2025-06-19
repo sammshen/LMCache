@@ -30,7 +30,7 @@ pip install vllm
 pip install --index-url https://pypi.org/simple --extra-index-url https://test.pypi.org/simple lmcache==$latest_version
 
 # Extra dependencies needed for the MMLU scripts
-pip install requests pandas numpy tqdm
+pip install requests pandas numpy tqdm json matplotlib
 
 # Download the MMLU dataset
 wget -q --show-progress https://people.eecs.berkeley.edu/~hendrycks/data.tar

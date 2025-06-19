@@ -41,7 +41,7 @@ nohup vllm serve "$MODEL_URL" \
     --max-model-len 8192 \
     > vllm.log 2>&1 &
 
-# Wait for the server to be ready
+# Wait for the serving engine to be ready
 total_time_elapsed=0
 until curl --fail -s http://localhost:8000/v1/models | grep -q "$MODEL_URL"; do
   echo "Waiting for model $MODEL_URL to be loaded..."

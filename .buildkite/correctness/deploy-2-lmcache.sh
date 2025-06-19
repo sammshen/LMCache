@@ -40,33 +40,58 @@ cd $SCRIPT_DIR
 free_port 65432
 nohup lmcache_server localhost 65432 &
 
+# Place the model in the HF cache
+
+python hf-cache-model.py --model-url "$MODEL_URL"
+
+MODEL_URL="hf-cache" # hf-cache-model.py will place the model in the HF cache
+
 # Deploy the first vLLM + LMCache serving engine on port 8000
 
 # KV producer
 free_port 8000
 nohup env \
+    CUDA_VISIBLE_DEVICES=0 \ 
     LMCACHE_REMOTE_URL="lm://localhost:65432" \
     LMCACHE_REMOTE_SERDE="naive" \
-    vllm serve $MODEL_URL \
+    vllm serve "$MODEL_URL" \
     --port 8000 \
     --trust-remote-code \
     --max-model-len 8192 \
-    --kv-transfer-config '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_producer"}' &
+    --kv-transfer-config '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_producer"}' \
+    > lmcache-1.log 2>&1 &
 
 # Deploy the second vLLM + LMCache serving engine on port 8001
 
 # KV consumer
 free_port 8001
 nohup env \
+    CUDA_VISIBLE_DEVICES=1 \
     LMCACHE_REMOTE_URL="lm://localhost:65432" \
     LMCACHE_REMOTE_SERDE="naive" \
-    vllm serve $MODEL_URL \
+    vllm serve "$MODEL_URL" \
     --port 8001 \
     --trust-remote-code \
     --max-model-len 8192 \
-    --kv-transfer-config '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_consumer"}' &
+    --kv-transfer-config '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_consumer"}' \
+    > lmcache-2.log 2>&1 &
 
-
+# Wait for both serving engines to be ready
+total_time_elapsed=0
+until curl --fail -s http://localhost:8000/v1/models | grep -q "$MODEL_URL" && curl --fail -s http://localhost:8001/v1/models | grep -q "$MODEL_URL"; do
+  echo "Waiting for model $MODEL_URL to be loaded..."
+  sleep 10
+  echo "--------------------------------"
+  echo "Most recent serving engine 1 (port 8000) logs:"
+  echo "--------------------------------"
+  tail -n 10 lmcache-1.log
+  echo "--------------------------------"
+  echo "Most recent serving engine 2 (port 8001) logs:"
+  echo "--------------------------------"
+  tail -n 10 lmcache-2.log
+  echo "--------------------------------"
+  total_time_elapsed=$((total_time_elapsed + 10))
+done
 
 
 
