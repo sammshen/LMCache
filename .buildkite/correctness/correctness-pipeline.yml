@@ -20,3 +20,7 @@ steps:
     depends_on:
       - "dense-model-test"
       - "mla-model-test"
+  - label: "Cleanup"
+    key: "cleanup"
+    commands:
+      - bash .buildkite/correctness/env-cleanup.sh
