@@ -53,7 +53,7 @@ MODEL_URL="hf-cache" # hf-cache-model.py will place the model in the HF cache
 # KV producer
 free_port 8000
 nohup env \
-    CUDA_VISIBLE_DEVICES=0 \ 
+    CUDA_VISIBLE_DEVICES=0 \
     LMCACHE_REMOTE_URL="lm://localhost:65432" \
     LMCACHE_REMOTE_SERDE="naive" \
     vllm serve "$MODEL_URL" \

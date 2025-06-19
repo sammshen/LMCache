@@ -8,20 +8,10 @@ cd $SCRIPT_DIR
 # ASSUMPTIONS: env-setup.sh has been run
 source correctness_venv/bin/activate
 
-# Arguments:
-MODEL_URL=$1
+bash env-setup.sh
 
-# Deploy 1x vLLM on the model
-bash deploy-1-vllm.sh "$MODEL_URL"
+bash e2e-one-model.sh meta-llama/Llama-3.1-8B
+bash e2e-one-model.sh deepseek-ai/DeepSeek-V2-Lite
 
-# Run MMLU on 1x vLLM with the model with 15 subjects
-python 1-mmlu.py --model "$MODEL_URL" --number-of-subjects 15
 
-# Deploy a 2x LMCache setup (one KV producer, one KV consumer via LMCache server) on the model
-bash deploy-2-lmcache.sh "$MODEL_URL"
-
-# Run MMLU on 2x LMCache setup with the model with 15 subjects
-python 2-mmlu.py --model "$MODEL_URL" --number-of-subjects 15
-
-# Summarize the results with a picture
-python summarize-results.py --model "$MODEL_URL"
+bash env-cleanup.sh
