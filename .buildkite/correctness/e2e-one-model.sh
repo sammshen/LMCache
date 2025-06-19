@@ -6,7 +6,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd $SCRIPT_DIR
 
 # ASSUMPTIONS: env-setup.sh has been run
-source correctness_venv/bin/activate
+source .venv/bin/activate
 
 # Arguments:
 MODEL_URL=$1

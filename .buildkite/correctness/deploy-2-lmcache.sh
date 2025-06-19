@@ -35,7 +35,7 @@ free_port() {
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd $SCRIPT_DIR
 
-source correctness_venv/bin/activate
+source .venv/bin/activate
 
 # Deploy the lmcache server
 

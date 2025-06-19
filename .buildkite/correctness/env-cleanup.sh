@@ -12,7 +12,15 @@ cd $SCRIPT_DIR
 # Deactivate the virtual environment if it is active. Do **not** delete the
 # `.venv` directory so that the Buildkite cache plugin can persist it across
 # pipeline steps.
-deactivate || true # || true in case we are not in the venv
+
+# Deactivate the venv (safe-to-call even if not active)
+deactivate || true
+
+# Remove the virtual environment directory to free disk space. This runs at
+# the very end of the CI step, *after* any caching or artifact upload, so it
+# does not interfere with Buildkite's cache plugin.
+echo "[env-cleanup] Removing virtual environment (.venv)"
+rm -rf .venv || true
 
 # In case pip installed the packages in cache as well
 pip cache purge
