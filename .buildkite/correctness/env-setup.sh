@@ -23,7 +23,7 @@ fi
 echo "Latest version of pre-release lmcache found: $latest_version"
 
 # Extra dependencies needed for the MMLU scripts
-pip install requests pandas numpy tqdm json matplotlib fastapi
+pip install requests pandas numpy tqdm matplotlib fastapi
 
 pip install vllm
 # Install latest pre-release wheel of lmcache
