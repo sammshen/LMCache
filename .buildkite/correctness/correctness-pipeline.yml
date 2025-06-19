@@ -4,15 +4,15 @@ steps:
   - label: "Setup"
     key: "setup"
     commands:
-      - ./.buildkite/correctness/env-setup.sh # this will generate a .buildkite/correctness/correctness_venv that every step should use
+      - bash .buildkite/correctness/env-setup.sh # this will generate a .buildkite/correctness/correctness_venv that every step should use
   - label: "Run E2E Correctness Test on a dense model"
     key: "dense-model-test"
     commands:
-      - ./.buildkite/correctness/e2e.sh meta-llama/Llama-3.1-8B
+      - bash .buildkite/correctness/e2e.sh meta-llama/Llama-3.1-8B
   - label: "Run E2E Correctness Test on an MLA model"
     key: "mla-model-test"
     commands:
-      - ./buildkite/correctness/e2e.sh deepseek-ai/DeepSeek-V2-Lite
+      - bash .buildkite/correctness/e2e.sh deepseek-ai/DeepSeek-V2-Lite
   - label: "Upload all pngs as artifacts"
     key: "upload-artifacts"
     commands:
