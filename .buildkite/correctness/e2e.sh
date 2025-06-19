@@ -15,13 +15,13 @@ MODEL_URL=$1
 bash deploy-1-vllm.sh "$MODEL_URL"
 
 # Run MMLU on 1x vLLM with the model with 15 subjects
-python 1-mmlu.py --model "$MODEL_URL" --number-of-subjects 15
+python3 1-mmlu.py --model "$MODEL_URL" --number-of-subjects 15
 
 # Deploy a 2x LMCache setup (one KV producer, one KV consumer via LMCache server) on the model
 bash deploy-2-lmcache.sh "$MODEL_URL"
 
 # Run MMLU on 2x LMCache setup with the model with 15 subjects
-python 2-mmlu.py --model "$MODEL_URL" --number-of-subjects 15
+python3 2-mmlu.py --model "$MODEL_URL" --number-of-subjects 15
 
 # Summarize the results with a picture
-python summarize-results.py --model "$MODEL_URL"
+python3 summarize-results.py --model "$MODEL_URL"

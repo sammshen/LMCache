@@ -16,7 +16,7 @@ def load_results(filename):
     df = pd.DataFrame(rows)
     return df
 
-def render_table(df, output_file="results_table.png"):
+def render_table(df, output_file):
     fig, ax = plt.subplots(figsize=(10, 0.4 * len(df)))  # height scales with number of rows
     ax.axis("off")
     table = ax.table(cellText=df.values, colLabels=df.columns, cellLoc='center', loc='center')
@@ -44,4 +44,4 @@ if __name__ == "__main__":
     df_combined = df_combined.sort_values(by=["Subject", "Run"])
 
     output_filename = f"results-{model_name}.png"
-    render_table(df_combined, output_file=output_filename)
+    render_table(df_combined, output_filename)

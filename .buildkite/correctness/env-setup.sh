@@ -7,7 +7,7 @@ cd $SCRIPT_DIR
 
 # NOTE: please run env-cleanup.sh after this script
 
-python -m venv correctness_venv
+python3 -m venv correctness_venv
 source correctness_venv/bin/activate
 
 # Get the latest pre-release version of lmcache from TestPyPI
