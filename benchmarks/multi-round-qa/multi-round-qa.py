@@ -34,7 +34,7 @@ class WorkloadConfig:
     num_rounds: int
 
     # Overall QPS
-    qps: int
+    qps: float
 
     # Model name
     model: str
@@ -446,7 +446,7 @@ class UserSessionManager:
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
         pending_queries: int = 0,
-        config_qps: Optional[int] = None,
+        config_qps: Optional[float] = None,
     ):
         if start_time and end_time:
             launched_queries = len(
@@ -705,9 +705,9 @@ def main():
             manager.step(time.time(), executor)
             time.sleep(step_interval)
 
-            if time.time() - last_summary_time > args.log_interval:
-                manager.summary(last_summary_time, time.time())
-                last_summary_time = time.time()
+            # if time.time() - last_summary_time > args.log_interval:
+            #     manager.summary(last_summary_time, time.time())
+            #     last_summary_time = time.time()
 
             if args.time is not None and time.time() - start_time > args.time:
                 break
