@@ -506,6 +506,7 @@ class StorageManager:
         for backend_name, backend in self.storage_backends.items():
             if not backend.support_prefetch_all():
                 continue
+            logger.info(f"Prefetching all keys from backend {backend_name}")
             num_prefetched += backend.prefetch_all()
 
         logger.info(f"Prefetched {num_prefetched} keys to the local CPU hot cache")

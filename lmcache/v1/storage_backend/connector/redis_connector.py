@@ -129,10 +129,12 @@ class RedisConnector(RemoteConnector):
         num_prefetched = 0
         for key in self.connection.scan_iter():
             if key.endswith("metadata"):
+                logger.info(f"Prefetching key {key}")
                 key_str = key[: -len("metadata")]
                 cache_engine_key = CacheEngineKey.from_string(key_str)
                 if not self.local_cpu_backend.contains(cache_engine_key):
                     if (metadata_bytes := self.connection.get(key)) is None:
+                        logger.info(f"Metadata bytes is None for key {key}")
                         continue
 
                     assert not inspect.isawaitable(metadata_bytes)
@@ -146,9 +148,7 @@ class RedisConnector(RemoteConnector):
                     )
 
                     if memory_obj is None:
-                        logger.warning(
-                            "Failed to allocate memory during remote receive"
-                        )
+                        logger.info("Failed to allocate memory during remote receive")
                         continue
 
                     # TODO(Jiayi): Find a way to do `get` inplace
@@ -160,7 +160,7 @@ class RedisConnector(RemoteConnector):
                         # consistency issues.
                         # TODO (Jiayi): A better way is to aggregate metadata
                         # and kv cache in one key.
-                        logger.warning(
+                        logger.info(
                             "Key exists but KV cache does not exist."
                             "Might happen when the cache is evicted by redis."
                         )
@@ -183,6 +183,7 @@ class RedisConnector(RemoteConnector):
                         converted = bytes(kv_bytes)
                         view[: metadata.length] = converted
 
+                    logger.info(f"Submitting put task for key {key}")
                     self.local_cpu_backend.submit_put_task(cache_engine_key, memory_obj)
                     num_prefetched += 1
         return num_prefetched

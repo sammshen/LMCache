@@ -7,5 +7,5 @@ remote_url: "redis://localhost:6379"
 enable_controller: True
 lmcache_instance_id: "lmcache_instance_1"
 controller_url: "localhost:9001"
-lmcache_worker_port: 8002
+lmcache_worker_port: 6002
 distributed_url: "localhost:8004"
