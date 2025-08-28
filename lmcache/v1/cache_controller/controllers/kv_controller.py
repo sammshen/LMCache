@@ -20,6 +20,8 @@ from lmcache.v1.cache_controller.message import (
     MoveRetMsg,
     PinMsg,
     PinRetMsg,
+    PrefetchAllMsg,
+    PrefetchAllRetMsg,
 )
 from lmcache.v1.token_database import ChunkedTokenDatabase
 
@@ -107,6 +109,12 @@ class KVController:
         Pin kv chunks of instance-worker(s).
         """
         return await self.cluster_executor.execute("pin", msg)
+
+    async def prefetch_all(self, msg: PrefetchAllMsg) -> PrefetchAllRetMsg:
+        """
+        Prefetch all kv chunks of instance-worker(s).
+        """
+        return await self.cluster_executor.execute("prefetch_all", msg)
 
     async def compress(self, msg: CompressMsg) -> CompressRetMsg:
         """

@@ -115,10 +115,77 @@ class RedisConnector(RemoteConnector):
         self.connection.set(key_str + "metadata", metadata_bytes)
         self.connection.set(key_str + "kv_bytes", kv_bytes)
 
-    # TODO
-    @no_type_check
     async def list(self) -> List[str]:
-        pass
+        # TODO: make this actually async
+        keys = []
+        for key in self.connection.scan_iter():
+            keys.append(key)
+        return keys
+
+    def support_prefetch_all(self) -> bool:
+        return True
+
+    def prefetch_all(self) -> int:
+        num_prefetched = 0
+        for key in self.connection.scan_iter():
+            if key.endswith("metadata"):
+                key_str = key[: -len("metadata")]
+                cache_engine_key = CacheEngineKey.from_string(key_str)
+                if not self.local_cpu_backend.contains(cache_engine_key):
+                    if (metadata_bytes := self.connection.get(key)) is None:
+                        continue
+
+                    assert not inspect.isawaitable(metadata_bytes)
+
+                    metadata = RemoteMetadata.deserialize(memoryview(metadata_bytes))
+
+                    memory_obj = self.local_cpu_backend.allocate(
+                        metadata.shape,
+                        metadata.dtype,
+                        metadata.fmt,
+                    )
+
+                    if memory_obj is None:
+                        logger.warning(
+                            "Failed to allocate memory during remote receive"
+                        )
+                        continue
+
+                    # TODO(Jiayi): Find a way to do `get` inplace
+                    kv_bytes = self.connection.get(key_str + "kv_bytes")
+                    assert not inspect.isawaitable(kv_bytes)
+
+                    if kv_bytes is None:
+                        # TODO (Jiayi): We might need a way to better handle
+                        # consistency issues.
+                        # TODO (Jiayi): A better way is to aggregate metadata
+                        # and kv cache in one key.
+                        logger.warning(
+                            "Key exists but KV cache does not exist."
+                            "Might happen when the cache is evicted by redis."
+                        )
+                        self.connection.delete(key_str + "metadata")
+                        continue
+
+                    if isinstance(memory_obj.byte_array, memoryview):
+                        view = memory_obj.byte_array
+                        if view.format == "<B":
+                            view = view.cast("B")
+                    else:
+                        view = memoryview(memory_obj.byte_array)
+
+                    if isinstance(kv_bytes, (bytes, bytearray)):
+                        view[: metadata.length] = kv_bytes
+                    elif isinstance(kv_bytes, str):
+                        converted = kv_bytes.encode("utf-8")
+                        view[: metadata.length] = converted
+                    else:
+                        converted = bytes(kv_bytes)
+                        view[: metadata.length] = converted
+
+                    self.local_cpu_backend.submit_put_task(cache_engine_key, memory_obj)
+                    num_prefetched += 1
+        return num_prefetched
 
     async def close(self):
         self.connection.close()

@@ -32,6 +32,8 @@ from lmcache.v1.cache_controller.message import (  # noqa: E501
     MoveRetMsg,
     PinMsg,
     PinRetMsg,
+    PrefetchAllMsg,
+    PrefetchAllRetMsg,
     QueryInstMsg,
     QueryInstRetMsg,
 )
@@ -251,6 +253,30 @@ def create_app(controller_url: str) -> FastAPI:
             return MoveResponse(
                 event_id=ret_msg.event_id,
                 num_tokens=ret_msg.num_tokens,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+
+    class PrefetchAllRequest(BaseModel):
+        instance_id: str
+
+    class PrefetchAllResponse(BaseModel):
+        event_id: str
+        num_keys: int
+
+    @app.post("/prefetch_all", response_model=PrefetchAllResponse)
+    async def prefetch_all(req: PrefetchAllRequest):
+        try:
+            event_id = "PrefetchAll" + str(uuid.uuid4())
+            msg = PrefetchAllMsg(
+                event_id=event_id,
+                instance_id=req.instance_id,
+            )
+            ret_msg = await lmcache_controller_manager.handle_orchestration_message(msg)
+            assert not isinstance(ret_msg, ErrorMsg), ret_msg.error
+            assert isinstance(ret_msg, PrefetchAllRetMsg)
+            return PrefetchAllResponse(
+                event_id=ret_msg.event_id, num_keys=ret_msg.num_keys
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e)) from e

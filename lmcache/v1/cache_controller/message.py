@@ -117,6 +117,15 @@ class PinWorkerMsg(ControlMsg):
         return f"Pin tokens {self.tokens} in location {self.location}"
 
 
+class PrefetchAllWorkerMsg(ControlMsg):
+    """Prefetch all message for a single lmcache worker"""
+
+    worker_event_id: str
+
+    def describe(self) -> str:
+        return "Prefetch all keys from the remote backend"
+
+
 class CompressWorkerMsg(ControlMsg):
     """Compress message for a single lmcache worker"""
 
@@ -205,6 +214,17 @@ class PinWorkerRetMsg(ControlRetMsg):
 
     def describe(self) -> str:
         return f"Number of pinned tokens: {self.num_tokens}"
+
+
+class PrefetchAllWorkerRetMsg(ControlRetMsg):
+    """Prefetch all return message for a single lmcache worker"""
+
+    num_keys: int
+
+    def describe(self) -> str:
+        return (
+            f"Prefetched {self.num_keys} keys from the remote backend to the local CPU"
+        )
 
 
 class CompressWorkerRetMsg(ControlRetMsg):
@@ -309,6 +329,16 @@ class PinMsg(OrchMsg):
             f"{self.instance_id} and "
             f"location {self.location}"
         )
+
+
+class PrefetchAllMsg(OrchMsg):
+    """Prefetch all message"""
+
+    event_id: str
+    instance_id: str
+
+    def describe(self) -> str:
+        return f"Prefetch all keys in instance {self.instance_id}"
 
 
 class CompressMsg(OrchMsg):
@@ -428,6 +458,16 @@ class PinRetMsg(OrchRetMsg):
         return f"Number of pinned tokens: {self.num_tokens}"
 
 
+class PrefetchAllRetMsg(OrchRetMsg):
+    """Prefetch all return message"""
+
+    event_id: str
+    num_keys: int
+
+    def describe(self) -> str:
+        return f"Prefetched {self.num_keys} keys into local CPU"
+
+
 class CompressRetMsg(OrchRetMsg):
     """Compress return message"""
 
@@ -496,6 +536,8 @@ Msg = Union[
     ClearWorkerRetMsg,
     PinWorkerMsg,
     PinWorkerRetMsg,
+    PrefetchAllWorkerMsg,
+    PrefetchAllWorkerRetMsg,
     CompressWorkerMsg,
     CompressWorkerRetMsg,
     DecompressWorkerMsg,
@@ -512,6 +554,8 @@ Msg = Union[
     ClearRetMsg,
     PinMsg,
     PinRetMsg,
+    PrefetchAllMsg,
+    PrefetchAllRetMsg,
     CompressMsg,
     CompressRetMsg,
     DecompressMsg,

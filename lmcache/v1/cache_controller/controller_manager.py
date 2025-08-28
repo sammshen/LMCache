@@ -33,6 +33,7 @@ from lmcache.v1.cache_controller.message import (  # isort: skip
     OrchMsg,
     OrchRetMsg,
     PinMsg,
+    PrefetchAllMsg,
     QueryInstMsg,
     RegisterMsg,
     WorkerMsg,
@@ -55,7 +56,7 @@ class LMCacheControllerManager:
         # Similarly we might need more sockets to handle different control
         # messages. For now, we use one socket to handle all control messages.
 
-        # TODO(Jiayi): Another thing is that we might need to decoupe the
+        # TODO(Jiayi): Another thing is that we might need to decouple the
         # interactions among `handle_worker_message`, `handle_control_message`
         # and `handle_orchestration_message`. For example, in
         # `handle_orchestration_message`, we might need to call
@@ -119,6 +120,8 @@ class LMCacheControllerManager:
             return await self.kv_controller.decompress(msg)
         elif isinstance(msg, MoveMsg):
             return await self.kv_controller.move(msg)
+        elif isinstance(msg, PrefetchAllMsg):
+            return await self.kv_controller.prefetch_all(msg)
         elif isinstance(msg, CheckFinishMsg):
             # FIXME(Jiayi): This `check_finish` thing
             # shouldn't be implemented in kv_controller.

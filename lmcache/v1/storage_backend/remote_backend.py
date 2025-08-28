@@ -397,6 +397,20 @@ class RemoteBackend(StorageBackendInterface):
         )
         return decompressed_memory_objs
 
+    def support_prefetch_all(self) -> bool:
+        if self.connection is None:
+            logger.warning(
+                "Connection is None in support_prefetch_all, returning False"
+            )
+            return False
+        return self.connection.support_prefetch_all()
+
+    def prefetch_all(self) -> int:
+        if self.connection is None:
+            logger.warning("Connection is None in prefetch_all, returning 0")
+            return 0
+        return self.connection.prefetch_all()
+
     def pin(self, key: CacheEngineKey) -> bool:
         logger.debug(
             "Remote backend does not support pin. "

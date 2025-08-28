@@ -242,5 +242,15 @@ class RemoteConnector(metaclass=abc.ABCMeta):
         """
         raise NotImplementedError
 
+    def support_prefetch_all(self) -> bool:
+        """Whether the connector supports prefetch all"""
+        return False
+
+    def prefetch_all(self) -> int:
+        """Prefetch all of the keys that exist in the remote backend to the local CPU"""
+        if not self.support_prefetch_all():
+            raise ValueError("This connector does not support prefetch all")
+        return 0
+
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}>"

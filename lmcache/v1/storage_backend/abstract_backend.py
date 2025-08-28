@@ -196,6 +196,16 @@ class StorageBackendInterface(metaclass=abc.ABCMeta):
             num_removed += self.remove(key, force=force)
         return num_removed
 
+    def support_prefetch_all(self) -> bool:
+        """Whether the storage backend supports prefetch all"""
+        return False
+
+    def prefetch_all(self) -> int:
+        """Prefetch all of the keys that exist in the remote backend to the local CPU"""
+        if not self.support_prefetch_all():
+            raise ValueError("This storage backend does not support prefetch all")
+        return 0
+
     @abc.abstractmethod
     def close(
         self,

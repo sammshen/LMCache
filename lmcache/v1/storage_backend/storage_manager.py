@@ -77,6 +77,7 @@ class StorageManager:
         self.enable_nixl = config.enable_nixl
 
         self.allocator_backend = self._get_allocator_backend(config)
+        self.config = config
         if config.local_cpu:
             self.local_cpu_backend = self.storage_backends["LocalCPUBackend"]
 
@@ -484,3 +485,28 @@ class StorageManager:
             self.thread.join()
 
         logger.info("Storage manager closed.")
+
+    def prefetch_all(self) -> int:
+        """Prefetch all of the keys that exist in the remote backend to the local CPU"""
+
+        if not self.config.local_cpu:
+            logger.warning(
+                "Prefetch all is only supported when local_cpu hot cache is enabled"
+            )
+            return 0
+
+        if not self.config.remote_url and not self.config.local_disk:
+            logger.warning(
+                "Prefetch all is only supported when the",
+                " engine is connected to a remote backend or local disk",
+            )
+            return 0
+
+        num_prefetched = 0
+        for backend_name, backend in self.storage_backends.items():
+            if not backend.support_prefetch_all():
+                continue
+            num_prefetched += backend.prefetch_all()
+
+        logger.info(f"Prefetched {num_prefetched} keys to the local CPU hot cache")
+        return num_prefetched

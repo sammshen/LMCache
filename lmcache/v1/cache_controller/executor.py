@@ -35,6 +35,9 @@ from lmcache.v1.cache_controller.message import (  # noqa: E501
     PinMsg,
     PinRetMsg,
     PinWorkerMsg,
+    PrefetchAllMsg,
+    PrefetchAllRetMsg,
+    PrefetchAllWorkerMsg,
 )
 
 logger = init_logger(__name__)
@@ -79,7 +82,7 @@ class LMCacheClusterExecutor:
                 )
             sockets.append(socket)
 
-            # TODO(Jiayi): Need a way to trak event_id -> worker_event_id mapping
+            # TODO(Jiayi): Need a way to track event_id -> worker_event_id mapping
             # Also, we need to track worker_event_id status
             worker_event_id = f"Worker{worker_id}{msg.event_id}"
             serialized_msg = msgspec.msgpack.encode(
@@ -156,6 +159,58 @@ class LMCacheClusterExecutor:
 
         return PinRetMsg(event_id=msg.event_id, num_tokens=num_tokens_list[0])
 
+    async def prefetch_all(
+        self, msg: PrefetchAllMsg
+    ) -> Union[PrefetchAllRetMsg, ErrorMsg]:
+        """
+        Execute a prefetch all operation with error handling.
+        """
+        instance_id = msg.instance_id
+        worker_ids = self.reg_controller.get_workers(instance_id)
+        assert worker_ids is not None
+
+        sockets = []
+        serialized_msgs = []
+        for worker_id in worker_ids:
+            socket = self.reg_controller.get_socket(instance_id, worker_id)
+            if socket is None:
+                return ErrorMsg(
+                    error=(
+                        f"Worker {worker_id} not registered for instance {instance_id}"
+                    )
+                )
+            sockets.append(socket)
+
+            worker_event_id = f"PrefetchAllWorker{worker_id}{msg.event_id}"
+            serialized_msg = msgspec.msgpack.encode(
+                PrefetchAllWorkerMsg(
+                    worker_event_id=worker_event_id,
+                )
+            )
+            serialized_msgs.append(serialized_msg)
+            logger.debug(
+                f"Sending prefetch all operation to worker ({instance_id}, {worker_id})"
+            )
+
+        serialized_results = await self.execute_workers(
+            sockets=sockets,
+            serialized_msgs=serialized_msgs,
+        )
+
+        num_keys_list = []
+        for serialized_result in serialized_results:
+            result = msgspec.msgpack.decode(serialized_result, type=Msg)
+            num_keys_list.append(result.num_keys)
+
+        assert len(set(num_keys_list)) == 1, (
+            "The number of keys prefetched should be the same across all workers."
+        )
+
+        return PrefetchAllRetMsg(
+            event_id=msg.event_id,
+            num_keys=sum(num_keys_list),
+        )
+
     async def compress(self, msg: CompressMsg) -> Union[CompressRetMsg, ErrorMsg]:
         """
         Execute a compress operation with error handling.
@@ -180,8 +235,7 @@ class LMCacheClusterExecutor:
             if socket is None:
                 return ErrorMsg(
                     error=(
-                        f"Worker {worker_id} not registered for "
-                        f"instance {instance_id} or "
+                        f"Worker {worker_id} not registered for instance {instance_id}"
                     )
                 )
             sockets.append(socket)

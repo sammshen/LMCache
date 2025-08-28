@@ -982,6 +982,11 @@ class LMCacheEngine:
         """
         return 0 if self.memory_allocator.memcheck() else -1
 
+    def prefetch_all(self) -> int:
+        """Prefetch all of the keys that exist in disk or remote backend to local CPU"""
+        # TODO: add disk prefetch
+        return self.storage_manager.prefetch_all()
+
     def close(self) -> None:
         """Close the cache engine and free all the resources"""
 
