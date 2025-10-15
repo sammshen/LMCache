@@ -163,9 +163,7 @@ class LMCacheEngine:
             gc.disable()
 
     def post_init(self, **kwargs) -> None:
-        if "async_lookup_server" in kwargs:
-            self.async_lookup_server = kwargs.pop("async_lookup_server")
-            self.storage_manager.post_init(async_lookup_server=self.async_lookup_server)
+        self.storage_manager.post_init(**kwargs)
         if not self.post_inited:
             logger.info("Post-initializing LMCacheEngine")
             self.gpu_connector.initialize_kvcaches_ptr(**kwargs)

@@ -231,14 +231,19 @@ class StorageManager:
         else:
             self.internal_copy_stream = None
 
+        self.post_inited = False
+
     def post_init(self, **kwargs) -> None:
+        if self.post_inited:
+            return
         if "async_lookup_server" in kwargs:
             assert not self.config.save_unfull_chunk, (
                 "save_unfull_chunk should be automatically set to False when using "
                 "async loading."
             )
             self.async_lookup_server = kwargs.pop("async_lookup_server")
-            self.async_serializer = AsyncSerializer(self.allocator_backend, self.loop)
+        self.async_serializer = AsyncSerializer(self.allocator_backend, self.loop)
+        self.post_inited = True
 
     def _get_allocator_backend(
         self, config: LMCacheEngineConfig
