@@ -41,7 +41,7 @@ jobs:
               with:
                 disable-sudo-and-containers: false
                 egress-policy: block
-                allowed-endpoints: >
+                allowed-endpoints: |
                   api.github.com:443
                   github.com:443
                   registry-1.docker.io:443
@@ -119,7 +119,7 @@ jobs:
               with:
                 disable-sudo-and-containers: true
                 egress-policy: block
-                allowed-endpoints: >
+                allowed-endpoints: |
                   github.com:443
                   api.github.com:443
                   objects.githubusercontent.com:443
@@ -131,6 +131,11 @@ jobs:
                   *.githubusercontent.com:443
                   rubygems.org:443
                   index.rubygems.org:443
+                  api.rubygems.org:443
+                  rubygems.global.ssl.fastly.net:443
+                  *.fastly.net:443
+                  *.blob.core.windows.net:443
+                  agent.api.stepsecurity.io:443
 
             - name: Wait for Buildkite unit tests
               uses: lewagon/wait-on-check-action@ccfb013c15c8afb7bf2b7c028fb74dc5a068cccc # v1.3.4
@@ -165,7 +170,7 @@ jobs:
               with:
                 disable-sudo-and-containers: false
                 egress-policy: block
-                allowed-endpoints: >
+                allowed-endpoints: |
                   ghcr.io:443
                   pkg-containers.githubusercontent.com:443
                   test.pypi.org:443
@@ -206,7 +211,7 @@ jobs:
               with:
                   disable-sudo-and-containers: false
                   egress-policy: block
-                  allowed-endpoints: >
+                  allowed-endpoints: |
                     api.github.com:443
                     uploads.github.com:443
                     ghcr.io:443
@@ -249,7 +254,7 @@ jobs:
               with:
                 disable-sudo-and-containers: false
                 egress-policy: block
-                allowed-endpoints: >
+                allowed-endpoints: |
                   github.com:443
                   registry-1.docker.io:443
                   production.cloudflare.docker.com:443

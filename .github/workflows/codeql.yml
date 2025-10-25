@@ -64,7 +64,7 @@ jobs:
       with:
         disable-sudo-and-containers: true
         egress-policy: block
-        allowed-endpoints: >
+        allowed-endpoints: |
           github.com:443
           api.github.com:443
           objects.githubusercontent.com:443

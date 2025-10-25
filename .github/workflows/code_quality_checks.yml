@@ -19,7 +19,7 @@ jobs:
           with:
             disable-sudo-and-containers: true
             egress-policy: block
-            allowed-endpoints: >
+            allowed-endpoints: |
               github.com:443
               pypi.org:443
               files.pythonhosted.org:443

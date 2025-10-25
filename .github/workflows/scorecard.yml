@@ -38,7 +38,7 @@ jobs:
         with:
           disable-sudo-and-containers: false
           egress-policy: block
-          allowed-endpoints: >
+          allowed-endpoints: |
             github.com:443
             api.github.com:443
             index.docker.io:443
