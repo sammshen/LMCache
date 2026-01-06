@@ -6,6 +6,8 @@ Redis
 Overview
 --------
 
+Skip to :ref:`redis-optimal-deployment`
+
 Redis is an in-memory key-value store and is a supported option for remote KV Cache offloading in LMCache.
 Some other remote backends are :doc:`Mooncake <./mooncake>`, :doc:`Valkey <./valkey>`, and :doc:`InfiniStore <./infinistore>`.
 This guide will mainly focus on single-node Redis but also shows you how to set up Redis Sentinels and an LMCache Server.
@@ -433,4 +435,79 @@ for the official LMCache way of controlling and routing your KV Caches in your L
     # Confirm no Redis processes are still running
     ps aux | grep redis
 
+.. _redis-optimal-deployment:
 
+Optimal Deployment with RESP Protocol
+--------------------------------------
+
+For optimal performance, you can use the RESP (REdis Serialization Protocol) connector with a custom Redis build and configuration. This setup is recommended for production deployments where maximum throughput and minimal latency are critical.
+
+**Step 1. Build Redis from source:**
+
+Clone and build Redis 8.2 with multi-threading support:
+
+.. code-block:: bash
+
+    git clone https://github.com/redis/redis.git
+    cd redis
+    git checkout 8.2
+    make -j
+
+**Step 2. Start Redis with optimized settings:**
+
+Start the Redis server with the following flags for optimal performance:
+
+.. code-block:: bash
+
+    ./src/redis-server --protected-mode no --save '' --appendonly no --io-threads 4
+
+Configuration explanation:
+
+- ``--protected-mode no``: Disables protected mode (use appropriate security measures in production)
+- ``--save ''``: Disables RDB persistence for better performance
+- ``--appendonly no``: Disables AOF persistence for better performance
+- ``--io-threads 4``: Enables multi-threaded I/O with 4 threads
+
+**Step 3. Create an LMCache configuration file:**
+
+Create ``resp.yaml`` with the following configuration:
+
+.. code-block:: yaml
+
+    chunk_size: 256
+    local_cpu: false
+    max_local_cpu_size: 120.0
+    remote_url: "resp://localhost:6379"
+    remote_serde: "naive"
+    blocking_timeout_secs: 120
+    save_unfull_chunk: false
+    extra_config:
+      resp_num_threads: 8  # Number of RESP client threads (default: 8)
+      save_chunk_meta: false  # Must be false for RESP
+
+Configuration notes:
+
+- ``remote_url``: Use the ``resp://`` protocol for the optimized RESP connector
+- ``save_unfull_chunk``: Must be set to ``false`` for RESP (enforced by the connector)
+- ``extra_config.resp_num_threads``: Number of concurrent RESP client threads (default: 8, empirically optimal for most workloads)
+- ``extra_config.save_chunk_meta``: Must be set to ``false`` for RESP (enforced by the connector)
+
+**Step 4. Start vLLM with the RESP configuration:**
+
+.. code-block:: bash
+
+    CUDA_VISIBLE_DEVICES=2 \
+    LMCACHE_CONFIG_FILE="resp.yaml" \
+    vllm serve meta-llama/Meta-Llama-3.1-8B-Instruct \
+      --load-format dummy \
+      --no-enable-prefix-caching \
+      --kv-transfer-config '{"kv_connector": "LMCacheConnectorV1", "kv_role": "kv_both"}'
+
+**Performance Notes:**
+
+The RESP connector provides optimized performance through:
+
+- Zero-copy operations using ``recv_into`` and ``sendmsg``
+- Multi-threaded connection pooling
+- Direct RESP protocol implementation without redis-py overhead
+- Fixed-size chunk optimization (requires ``save_unfull_chunk: false``)
