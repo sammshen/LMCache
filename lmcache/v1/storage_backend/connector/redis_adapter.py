@@ -39,8 +39,8 @@ class RESPConnectorAdapter(ConnectorAdapter):
 
         assert not config.save_unfull_chunk, "save_unfull_chunk must be False for RESP"
 
-        # Get number of threads for RESP connection pool (default is 4)
-        self.resp_num_threads = int(extra_config.get("resp_num_threads", 4))
+        # Get number of threads for RESP connection pool (default is 8)
+        self.resp_num_threads = int(extra_config.get("resp_num_threads", 8))
 
         logger.info(f"Creating RESP connector for URL: {context.url}")
         parsed_url = parse_remote_url(context.url)

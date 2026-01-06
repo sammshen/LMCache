@@ -338,7 +338,7 @@ class RESPConnector(RemoteConnector):
         port: int,
         loop: asyncio.AbstractEventLoop,
         local_cpu_backend: LocalCPUBackend,
-        num_threads: int = 4,
+        num_threads: int = 8,
     ):
         super().__init__(local_cpu_backend.config, local_cpu_backend.metadata)
 
