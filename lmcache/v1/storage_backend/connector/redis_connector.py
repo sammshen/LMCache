@@ -1,10 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # Standard
+from concurrent.futures import Future
 from enum import IntEnum, auto
 from typing import List, Optional, Tuple, no_type_check
 import asyncio
 import inspect
 import os
+import queue
+import socket
+import threading
 
 # Third Party
 from redis.asyncio.cluster import ClusterNode, RedisCluster
@@ -34,9 +38,405 @@ class Priorities(IntEnum):
     PUT = auto()
 
 
+class RESPClient:
+    """
+    A client implementing RESP2 only for GET, SET, and EXISTS
+    Should be wrapped with MultiRESPClient
+
+    Primary Assumption (for "chunked" parsing and reusing payloads):
+    The size of payloads (KV cache object) is always fixed. The retrieval
+    helper `_recv_exactly(n, buf)` can be used to retrieve payloads without
+    having to scan for \r\n (`save_unfull_chunk` should be False)
+
+
+    Optimizations:
+    - zero copy retrieval (through recv_into) ** not supported by redis-py **
+    - scatter-gather sending (through sendmsg)
+    """
+
+    def __init__(self, host: str, port: int, chunk_size: int):
+        """
+        the chunk_size must be known beforehand (save_unfull_chunk = False)
+        for this client to work
+        """
+        self.chunk_size = chunk_size
+        self._generate_reusables(chunk_size)
+        self.sock = socket.create_connection((host, port))
+
+    def _generate_reusables(self, chunk_size: int):
+        # some cached objects for scatter-gather sending
+        # and response parsing
+        self.size_header = memoryview(f"${chunk_size}\r\n".encode())
+        self.size_header_len = len(self.size_header)
+
+        self.crlf = memoryview(b"\r\n")
+        self.crlf_len = len(self.crlf)
+
+        self._get_prefix = [
+            memoryview(b"*2\r\n"),
+            memoryview(b"$3\r\nGET\r\n"),
+        ]
+
+        self._set_prefix = [
+            memoryview(b"*3\r\n"),
+            memoryview(b"$3\r\nSET\r\n"),
+        ]
+
+        self._exists_prefix = [
+            memoryview(b"*2\r\n"),
+            memoryview(b"$6\r\nEXISTS\r\n"),
+        ]
+
+        # simple string response for set
+        self._ok = memoryview(b"+OK\r\n")
+        self._ok_len = len(self._ok)
+
+        # integer response for exists
+        self._one = memoryview(b":1\r\n")
+        self._zero = memoryview(b":0\r\n")
+        # assumes int < 256
+        self._int_len = len(self._one)  # len(self._zero)
+
+    # -- recv and send (optimized for zero copy) ---
+
+    def _recv_exactly_into(self, n: int, into: memoryview):
+        """
+        Reads exactly n bytes.
+        """
+        assert into is not None
+        total = 0
+        while total < n:
+            m = self.sock.recv_into(into[total : total + (n - total)])
+            if m == 0:
+                raise ConnectionError("Socket closed during recv_exactly")
+            total += m
+
+    def _send_multipart(self, parts: list[memoryview]):
+        """
+        Zero-copy scatter/gather write with correct partial-write handling.
+        """
+        # parts will be "consumed" (popped) as they are sent
+        while parts:
+            # bytes sent
+            n_sent = self.sock.sendmsg(parts)
+            if n_sent == 0:
+                raise ConnectionError("Broken connection during sendmsg")
+
+            sent = 0
+            while parts and sent < n_sent:
+                p = parts[0]
+                p_len = len(p)
+                remain = n_sent - sent
+
+                if remain >= p_len:
+                    parts.pop(0)
+                    sent += p_len
+                else:
+                    parts[0] = p[remain:]
+                    break
+
+    # only support 3 commands
+    # GET
+    # SET
+    # EXISTS
+
+    def make_key_header(self, key: str) -> tuple[memoryview, memoryview]:
+        # returns (key_b, key_len_hdr)
+        key_b = key.encode()
+        key_len_hdr = f"${len(key_b)}\r\n".encode()
+        return memoryview(key_b), memoryview(key_len_hdr)
+
+    def get(self, key: str, recv_buf: memoryview):
+        """
+        assumption:
+        both recv_buf and the payload stored in redis for key
+        should be of size chunk_size
+
+        recv_buf should be a direct reference to the buffer inside
+        of a MemoryObj for zero-copy retrieval
+        """
+        assert len(recv_buf) == self.chunk_size, "recv_buf is not of size chunk_size"
+
+        key_b, key_len_hdr = self.make_key_header(key)
+
+        # build scatter gather msg
+        parts = [
+            *self._get_prefix,
+            key_len_hdr,
+            key_b,
+            self.crlf,
+        ]
+
+        self._send_multipart(parts)
+
+        # 1. read size header (validation)
+        # we could discard the header but validating it is safer
+        size_hdr = bytearray(self.size_header_len)
+        self._recv_exactly_into(self.size_header_len, memoryview(size_hdr))
+
+        assert size_hdr == self.size_header, "GET command returned invalid size header"
+
+        # 2. read the payload / KV Cache directly into the recv_buf
+        self._recv_exactly_into(self.chunk_size, recv_buf)
+
+        # 3. read the trailer (validation)
+        # we could discard the trailer but validating it is safer
+        trailer = bytearray(self.crlf_len)
+        self._recv_exactly_into(self.crlf_len, memoryview(trailer))
+        assert trailer == self.crlf, "GET command returned invalid trailer"
+
+    def set(self, key: str, send_buf: memoryview):
+        """
+        assumption: send_buf is of size chunk_size
+        """
+        assert len(send_buf) == self.chunk_size, "send_buf is not of size chunk_size"
+
+        key_b, key_len_hdr = self.make_key_header(key)
+
+        # build scatter gather msg
+        parts = [
+            *self._set_prefix,
+            key_len_hdr,
+            key_b,
+            self.crlf,
+            self.size_header,
+            send_buf,
+            self.crlf,
+        ]
+
+        self._send_multipart(parts)
+
+        # expect the ok response
+        ret = bytearray(self._ok_len)
+        self._recv_exactly_into(self._ok_len, memoryview(ret))
+        assert ret == self._ok, "SET command returned invalid response"
+
+    def exists(self, key: str) -> bool:
+        """
+        check key existence
+        """
+        key_b, key_len_hdr = self.make_key_header(key)
+
+        parts = [
+            *self._exists_prefix,
+            key_len_hdr,
+            key_b,
+            self.crlf,
+        ]
+
+        self._send_multipart(parts)
+
+        # read the response
+        ret = bytearray(self._int_len)
+        self._recv_exactly_into(self._int_len, memoryview(ret))
+        if ret == self._one:
+            return True
+        elif ret == self._zero:
+            return False
+        else:
+            raise ValueError("EXISTS command returned invalid response")
+
+    def close(self):
+        self.sock.close()
+
+
+class MultiRESPClient:
+    """
+    Multithreaded wrapper around RESPClient
+
+    Please pass in keys with string serialization
+    """
+
+    def __init__(self, host: str, port: int, chunk_size: int, num_threads: int):
+        self.num_threads = num_threads
+        # i probably does not need to be protected
+        # self.dispatch_lock = threading.Lock()
+        self.i = 0  # round robin index for the dispatcher
+
+        self.queues: list[queue.Queue] = [queue.Queue() for _ in range(num_threads)]
+        self.clients = [RESPClient(host, port, chunk_size) for _ in range(num_threads)]
+
+        self.threads = [
+            threading.Thread(
+                target=self.worker_loop,
+                args=(self.clients[i], self.queues[i]),
+                daemon=True,
+            )
+            for i in range(num_threads)
+        ]
+        for thread in self.threads:
+            thread.start()
+
+    def worker_loop(self, client: RESPClient, q: queue.Queue):
+        while True:
+            op, key, buf, future = q.get()
+            try:
+                # opcodes: get, set, exists
+                if op == "get":
+                    client.get(key, buf)
+                    future.set_result(None)
+
+                elif op == "set":
+                    client.set(key, buf)
+                    future.set_result(None)
+
+                elif op == "exists":
+                    exists = client.exists(key)
+                    future.set_result(exists)
+
+                elif op == "close":
+                    client.close()
+                    break  # exit loop
+
+                else:
+                    raise ValueError(f"Invalid operation: {op}")
+            except Exception as e:
+                if future:
+                    future.set_exception(e)
+            finally:
+                q.task_done()
+
+    def _dispatch(self, item):
+        """
+        Dispatch a job to a worker RESPClient
+        """
+        # item: (op, key, buf, future)
+        i = self.i
+        self.i = (i + 1) % self.num_threads
+        self.queues[i].put(item)
+
+    def set(self, key, buf):
+        f = Future()
+        self._dispatch(("set", key, buf, f))
+        return f
+
+    def get(self, key, buf):
+        f = Future()
+        self._dispatch(("get", key, buf, f))
+        return f
+
+    def exists(self, key):
+        f = Future()
+        self._dispatch(("exists", key, None, f))
+        return f
+
+    def close(self):
+        for i in range(self.num_threads):
+            self._dispatch(("close", None, None, None))
+        for thread in self.threads:
+            thread.join()
+
+
+class RESPConnector(RemoteConnector):
+    """
+    The remote url should start with "resp://" and only have one host-port pair
+    """
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        loop: asyncio.AbstractEventLoop,
+        local_cpu_backend: LocalCPUBackend,
+        num_threads: int = 4,
+    ):
+        super().__init__(local_cpu_backend.config, local_cpu_backend.metadata)
+
+        # self.full_chunk_size is set in the base class
+        # we also get:
+        # self.meta_shapes, self.meta_dtypes, self.meta_fmt
+        self.host = host
+        self.port = port
+        self.loop = loop
+        self.local_cpu_backend = local_cpu_backend
+        # empirically, num_threads >=4 seems to be around the same
+        self.connection = MultiRESPClient(host, port, self.full_chunk_size, num_threads)
+
+        self.pq_executor = AsyncPQExecutor(loop)
+
+    async def _exists(self, key: CacheEngineKey) -> bool:
+        f = self.connection.exists(key.to_string())
+        return await asyncio.wrap_future(f)
+
+    async def exists(self, key: CacheEngineKey) -> bool:
+        return await self.pq_executor.submit_job(
+            self._exists, key=key, priority=Priorities.PEEK
+        )
+
+    def exists_sync(self, key: CacheEngineKey) -> bool:
+        f = self.connection.exists(key.to_string())
+        return f.result()
+
+    async def _get(self, key: CacheEngineKey) -> Optional[MemoryObj]:
+        key_str = key.to_string()
+        memory_obj = self.local_cpu_backend.allocate(
+            self.meta_shapes,
+            self.meta_dtypes,
+            self.meta_fmt,
+        )
+
+        # byte array view of tensor
+        recv_buf = memory_obj.byte_array
+        f = self.connection.get(key_str, recv_buf)
+        await asyncio.wrap_future(f)
+
+        return memory_obj
+
+    async def get(self, key: CacheEngineKey) -> Optional[MemoryObj]:
+        return await self.pq_executor.submit_job(
+            self._get, key=key, priority=Priorities.GET
+        )
+
+    async def _put(self, key: CacheEngineKey, memory_obj: MemoryObj):
+        key_str = key.to_string()
+        send_buf = memory_obj.byte_array
+        f = self.connection.set(key_str, send_buf)
+        await asyncio.wrap_future(f)
+
+    async def put(self, key: CacheEngineKey, memory_obj: MemoryObj):
+        await self.pq_executor.submit_job(
+            self._put, key=key, memory_obj=memory_obj, priority=Priorities.PUT
+        )
+
+    def support_batched_put(self) -> bool:
+        return True
+
+    async def _batched_put(
+        self, keys: List[CacheEngineKey], memory_objs: List[MemoryObj]
+    ):
+        # calling self.put will create a circular dependency
+        await asyncio.gather(
+            *(
+                self._put(key, memory_obj)
+                for key, memory_obj in zip(keys, memory_objs, strict=False)
+            )
+        )
+
+    async def batched_put(
+        self, keys: List[CacheEngineKey], memory_objs: List[MemoryObj]
+    ):
+        await self.pq_executor.submit_job(
+            self._batched_put,
+            keys=keys,
+            memory_objs=memory_objs,
+            priority=Priorities.PUT,
+        )
+
+    # TODO
+    @no_type_check
+    async def list(self) -> List[str]:
+        pass
+
+    async def close(self):
+        await self.pq_executor.shutdown(wait=True)
+        self.connection.close()
+        logger.info("Closed the RESP connection")
+
+
 class RedisConnector(RemoteConnector):
     """
-    The remote url should start with "redis://" and only have one host-port pair
+    The remote url should start with "redis://", "rediss://", or "unix://",
+    and only have one host-port pair
     """
 
     def __init__(
