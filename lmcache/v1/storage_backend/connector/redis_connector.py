@@ -443,7 +443,8 @@ class RESPConnector(RemoteConnector):
     ) -> int:
         num_hit_counts = 0
         for key in keys:
-            if not await self.connection.exists(key.to_string()):
+            f = self.connection.exists(key.to_string())
+            if not await asyncio.wrap_future(f):
                 return num_hit_counts
             num_hit_counts += 1
         return num_hit_counts
