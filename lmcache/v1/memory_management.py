@@ -555,14 +555,8 @@ class TensorMemoryObj(MemoryObj):
         )
 
     @property
-    def byte_array(self) -> bytes:
-        num_bytes = self.raw_data.numel() * self.raw_data.element_size()
-        ptr = self.raw_data.data_ptr()
-        ubyte_ptr = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_ubyte))
-        byte_array = (ctypes.c_ubyte * num_bytes).from_address(
-            ctypes.addressof(ubyte_ptr.contents)
-        )
-        return memoryview(byte_array)
+    def byte_array(self) -> memoryview:
+        return memoryview(self.raw_data)
 
     @property
     def data_ptr(self) -> int:
