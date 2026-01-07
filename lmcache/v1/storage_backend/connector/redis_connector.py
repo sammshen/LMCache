@@ -236,6 +236,39 @@ class RESPClient:
         else:
             raise ValueError("EXISTS command returned invalid response")
 
+    def _recv_int_response(self) -> int:
+        """
+        When we don't know beforehand the size of the response
+        """
+        tmp = bytearray()
+        while True:
+            # read one byte at a time
+            b = self.sock.recv(1)
+            if len(tmp) == 0:
+                assert b == b":"
+            if not b:
+                raise ConnectionError("Socket closed while reading")
+            tmp.append(b[0])
+            if len(tmp) >= 2 and tmp[-2:] == b"\r\n":
+                # exclude the prefix : and the CRLF
+                return int(tmp[1:-2])
+
+    def batched_exists(self, keys: List[str]) -> int:
+        # TODO: buggy because sock.sendmsg has a limit to bytes that can be sent at once
+        parts = [*self._exists_prefix] + [
+            item
+            for key in keys
+            for item in (
+                self.make_key_header(key)[1],
+                self.crlf,
+                self.make_key_header(key)[0],
+                self.crlf,
+            )
+        ]
+        self._send_multipart(parts)
+
+        return self._recv_int_response()
+
     def close(self):
         self.sock.close()
 
@@ -368,6 +401,7 @@ class RESPConnector(RemoteConnector):
         return f.result()
 
     async def _get(self, key: CacheEngineKey) -> Optional[MemoryObj]:
+        # TODO: does not account for eviction between exists() and get()
         key_str = key.to_string()
         memory_obj = self.local_cpu_backend.allocate(
             self.meta_shapes,
@@ -441,10 +475,16 @@ class RESPConnector(RemoteConnector):
         keys: List[CacheEngineKey],
         pin: bool = False,
     ) -> int:
+        # Issue all exists checks in parallel
+        futures = [self.connection.exists(key.to_string()) for key in keys]
+
+        # Gather all results in parallel
+        results = await asyncio.gather(*[asyncio.wrap_future(f) for f in futures])
+
+        # Check results sequentially for early exit semantics
         num_hit_counts = 0
-        for key in keys:
-            f = self.connection.exists(key.to_string())
-            if not await asyncio.wrap_future(f):
+        for result in results:
+            if not result:
                 return num_hit_counts
             num_hit_counts += 1
         return num_hit_counts
