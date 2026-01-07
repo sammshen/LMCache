@@ -432,6 +432,60 @@ class RESPConnector(RemoteConnector):
         self.connection.close()
         logger.info("Closed the RESP connection")
 
+    def support_batched_async_contains(self) -> bool:
+        return True
+
+    async def _batched_async_contains(
+        self,
+        lookup_id: str,
+        keys: List[CacheEngineKey],
+        pin: bool = False,
+    ) -> int:
+        num_hit_counts = 0
+        for key in keys:
+            if not await self.connection.exists(key.to_string()):
+                return num_hit_counts
+            num_hit_counts += 1
+        return num_hit_counts
+
+    async def batched_async_contains(
+        self,
+        lookup_id: str,
+        keys: List[CacheEngineKey],
+        pin: bool = False,
+    ) -> int:
+        return await self.pq_executor.submit_job(
+            self._batched_async_contains,
+            lookup_id=lookup_id,
+            keys=keys,
+            pin=pin,
+            priority=Priorities.PEEK,
+        )
+
+    def support_batched_get_non_blocking(self) -> bool:
+        return True
+
+    async def _batched_get_non_blocking(
+        self,
+        lookup_id: str,
+        keys: List[CacheEngineKey],
+    ) -> List[MemoryObj]:
+        # calling self.get will create a circular dependency
+        results = await asyncio.gather(*(self._get(key) for key in keys))
+        return [r for r in results if r is not None]
+
+    async def batched_get_non_blocking(
+        self,
+        lookup_id: str,
+        keys: List[CacheEngineKey],
+    ) -> List[MemoryObj]:
+        return await self.pq_executor.submit_job(
+            self._batched_get_non_blocking,
+            lookup_id=lookup_id,
+            keys=keys,
+            priority=Priorities.PREFETCH,
+        )
+
 
 class RedisConnector(RemoteConnector):
     """
