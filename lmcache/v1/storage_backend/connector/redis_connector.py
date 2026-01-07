@@ -12,6 +12,9 @@ import threading
 
 # Third Party
 from redis.asyncio.cluster import ClusterNode, RedisCluster
+
+# note: asyncio.wrap_future preserves the synchronization property of asyncio.Future
+# but loses the concurrency property on thread-level blocking behavior
 import redis.asyncio as redis
 
 # First Party
@@ -336,6 +339,7 @@ class MultiRESPClient:
         # item: (op, key, buf, future)
         i = self.i
         self.i = (i + 1) % self.num_threads
+        # the default size is infinite so .put() should never block
         self.queues[i].put(item)
 
     def set(self, key, buf):
@@ -400,6 +404,21 @@ class RESPConnector(RemoteConnector):
         f = self.connection.exists(key.to_string())
         return f.result()
 
+    def support_batched_contains(self) -> bool:
+        return True
+
+    def batched_contains(self, keys: List[CacheEngineKey]) -> int:
+        """
+        especially for the RESPConnector,
+        the importance of batched operations is to make sure that dispatches
+        are done as soon as possible without the possibility of asyncio's
+        event loop delaying the scheduling of command dispatch
+        """
+        key_strs = [key.to_string() for key in keys]
+        futures = [self.connection.exists(key_str) for key_str in key_strs]
+        results = [future.result() for future in futures]
+        return sum(results)
+
     async def _get(self, key: CacheEngineKey) -> Optional[MemoryObj]:
         # TODO: does not account for eviction between exists() and get()
         key_str = key.to_string()
@@ -421,6 +440,42 @@ class RESPConnector(RemoteConnector):
             self._get, key=key, priority=Priorities.GET
         )
 
+    def support_batched_get(self) -> bool:
+        return True
+
+    async def _batched_get(
+        self, keys: List[CacheEngineKey]
+    ) -> List[Optional[MemoryObj]]:
+        """
+        for the RESPConnector in particular,
+        the importance of batched operations is to make sure that dispatches
+        are done as soon as possible without the possibility of asyncio's
+        event loop delaying the scheduling of command dispatch
+        """
+        key_strs = [key.to_string() for key in keys]
+        memory_objs = self.local_cpu_backend.batched_allocate(
+            self.meta_shapes, self.meta_dtypes, len(keys), self.meta_fmt
+        )
+
+        if memory_objs is None or None in memory_objs:
+            logger.warning("Failed to allocate memory for some keys")
+            return [None] * len(keys)
+
+        recv_bufs = [memory_obj.byte_array for memory_obj in memory_objs]
+        futures = [
+            asyncio.wrap_future(self.connection.get(key_str, recv_buf))
+            for key_str, recv_buf in zip(key_strs, recv_bufs, strict=False)
+        ]
+        await asyncio.gather(*futures)
+        return memory_objs
+
+    async def batched_get(
+        self, keys: List[CacheEngineKey]
+    ) -> List[Optional[MemoryObj]]:
+        return await self.pq_executor.submit_job(
+            self._batched_get, keys=keys, priority=Priorities.GET
+        )
+
     async def _put(self, key: CacheEngineKey, memory_obj: MemoryObj):
         key_str = key.to_string()
         send_buf = memory_obj.byte_array
@@ -438,13 +493,19 @@ class RESPConnector(RemoteConnector):
     async def _batched_put(
         self, keys: List[CacheEngineKey], memory_objs: List[MemoryObj]
     ):
-        # calling self.put will create a circular dependency
-        await asyncio.gather(
-            *(
-                self._put(key, memory_obj)
-                for key, memory_obj in zip(keys, memory_objs, strict=False)
-            )
-        )
+        """
+        for the RESPConnector in particular,
+        the importance of batched operations is to make sure that dispatches
+        are done as soon as possible without the possibility of asyncio's
+        event loop delaying the scheduling of command dispatch
+        """
+        key_strs = [key.to_string() for key in keys]
+        send_bufs = [memory_obj.byte_array for memory_obj in memory_objs]
+        futures = [
+            asyncio.wrap_future(self.connection.set(key_str, send_buf))
+            for key_str, send_buf in zip(key_strs, send_bufs, strict=False)
+        ]
+        await asyncio.gather(*futures)
 
     async def batched_put(
         self, keys: List[CacheEngineKey], memory_objs: List[MemoryObj]
@@ -475,19 +536,13 @@ class RESPConnector(RemoteConnector):
         keys: List[CacheEngineKey],
         pin: bool = False,
     ) -> int:
-        # Issue all exists checks in parallel
-        futures = [self.connection.exists(key.to_string()) for key in keys]
+        key_strs = [key.to_string() for key in keys]
+        futures = [
+            asyncio.wrap_future(self.connection.exists(key_str)) for key_str in key_strs
+        ]
 
-        # Gather all results in parallel
-        results = await asyncio.gather(*[asyncio.wrap_future(f) for f in futures])
-
-        # Check results sequentially for early exit semantics
-        num_hit_counts = 0
-        for result in results:
-            if not result:
-                return num_hit_counts
-            num_hit_counts += 1
-        return num_hit_counts
+        results = await asyncio.gather(*futures)
+        return sum(results)
 
     async def batched_async_contains(
         self,
@@ -511,8 +566,23 @@ class RESPConnector(RemoteConnector):
         lookup_id: str,
         keys: List[CacheEngineKey],
     ) -> List[MemoryObj]:
-        # calling self.get will create a circular dependency
-        results = await asyncio.gather(*(self._get(key) for key in keys))
+        """
+        same implementation as batched_get
+        """
+        key_strs = [key.to_string() for key in keys]
+        memory_objs = self.local_cpu_backend.batched_allocate(
+            self.meta_shapes, self.meta_dtypes, len(keys), self.meta_fmt
+        )
+        if memory_objs is None or None in memory_objs:
+            logger.warning("Failed to allocate memory for some keys")
+            return []
+
+        recv_bufs = [memory_obj.byte_array for memory_obj in memory_objs]
+        futures = [
+            asyncio.wrap_future(self.connection.get(key_str, recv_buf))
+            for key_str, recv_buf in zip(key_strs, recv_bufs, strict=False)
+        ]
+        results = await asyncio.gather(*futures)
         return [r for r in results if r is not None]
 
     async def batched_get_non_blocking(

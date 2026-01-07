@@ -556,7 +556,9 @@ class TensorMemoryObj(MemoryObj):
 
     @property
     def byte_array(self) -> memoryview:
-        return memoryview(self.raw_data)
+        # Convert tensor to numpy array for memoryview compatibility
+        # The tensor should already be on CPU (pinned memory)
+        return memoryview(self.raw_data.numpy())
 
     @property
     def data_ptr(self) -> int:
