@@ -28,11 +28,6 @@ from lmcache.v1.storage_backend.local_cpu_backend import LocalCPUBackend
 
 logger = init_logger(__name__)
 
-# TODO(Jiayi): Use `redis.asyncio`
-# NOTE(Jiayi): `redis-py` supports async operations, but data copy
-# cannot be avoided. `hiredis` is more lower-level but asyncio is
-# not supported.
-
 
 class Priorities(IntEnum):
     PEEK = auto()
@@ -65,6 +60,12 @@ class RESPClient:
         self.chunk_size = chunk_size
         self._generate_reusables(chunk_size)
         self.sock = socket.create_connection((host, port))
+
+        # Optimize socket for low-latency bulk transfers
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        # Increase socket buffers for 4MB chunks
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 * 1024 * 1024)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 8 * 1024 * 1024)
 
     def _generate_reusables(self, chunk_size: int):
         # some cached objects for scatter-gather sending
@@ -109,7 +110,7 @@ class RESPClient:
         assert into is not None
         total = 0
         while total < n:
-            m = self.sock.recv_into(into[total : total + (n - total)])
+            m = self.sock.recv_into(into[total:n])
             if m == 0:
                 raise ConnectionError("Socket closed during recv_exactly")
             total += m
