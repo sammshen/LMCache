@@ -46,28 +46,40 @@ enum class GPUKVFormat : int {
   NL_X_TWO_NB_BS_NH_HS = 1,
   /*
   used by:
-  - vLLM non-MLA flash attention
+  - vLLM non-MLA flash attention (NHD)
   */
 
   NL_X_NB_TWO_BS_NH_HS = 2,
   /*
   used by:
-  - vLLM non-MLA flash infer
+  - vLLM non-MLA flash infer (NHD)
   */
 
-  NL_X_NB_BS_HS = 3,
+  NL_X_TWO_NB_NH_BS_HS = 3,
+  /*
+  used by:
+  - vLLM non-MLA flash attention with permuted (non-contiguous) layout (HND)
+  */
+
+  NL_X_NB_TWO_NH_BS_HS = 4,
+  /*
+  used by:
+  - vLLM non-MLA flash infer with permuted (non-contiguous) layout (HND)
+  */
+
+  NL_X_NB_BS_HS = 5,
   /*
   used by:
   - vLLM MLA
   */
 
-  TWO_X_NL_X_NBBS_NH_HS = 4,
+  TWO_X_NL_X_NBBS_NH_HS = 6,
   /*
   used by:
   - SGLang MHA (flash attention and flash infer)
   */
 
-  NL_X_NBBS_ONE_HS = 5,
+  NL_X_NBBS_ONE_HS = 7,
   /*
   used by:
   - SGLang MLA

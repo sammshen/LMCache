@@ -201,13 +201,29 @@ page_buffer_offset(const int k_or_v, const int token_idx,
     return k_or_v * page_buffer_size * scalars_per_token +
            token_idx * scalars_per_token + scalar_offset;
   }
-  // vllm flash attention
+  // vllm flash attention (NHD)
   else if constexpr (format == GPUKVFormat::NL_X_TWO_NB_BS_NH_HS) {
     return k_or_v * page_buffer_size * scalars_per_token +
            token_idx * scalars_per_token + scalar_offset;
   }
-  // vllm flash infer
+  // vllm flash infer (NHD)
   else if constexpr (format == GPUKVFormat::NL_X_NB_TWO_BS_NH_HS) {
+    const int block_idx = token_idx / block_size;
+    const int block_offset = token_idx % block_size;
+    return block_idx * 2 * block_size * scalars_per_token +
+           k_or_v * block_size * scalars_per_token +
+           block_offset * scalars_per_token + scalar_offset;
+  }
+  // vllm flash attention (HND)
+  else if constexpr (format == GPUKVFormat::NL_X_TWO_NB_NH_BS_HS) {
+    const int block_idx = token_idx / block_size;
+    const int block_offset = token_idx % block_size;
+    return k_or_v * page_buffer_size * scalars_per_token +
+           block_idx * block_size * scalars_per_token +
+           head_idx * block_size token_idx * scalars_per_token + scalar_offset;
+  }
+  // vllm flash infer (HND)
+  else if constexpr (format == GPUKVFormat::NL_X_NB_TWO_NH_BS_HS) {
     const int block_idx = token_idx / block_size;
     const int block_offset = token_idx % block_size;
     return block_idx * 2 * block_size * scalars_per_token +
@@ -230,6 +246,7 @@ __device__ __forceinline__ int64_t
 key_value_offset(const int k_or_v, const int layer_idx, const int token_idx,
                  const int scalar_offset, const int scalars_per_token,
                  const int num_tokens, const int num_layers) {
+  // for 2LTD format
   return k_or_v * num_layers * num_tokens * scalars_per_token +
          layer_idx * num_tokens * scalars_per_token +
          token_idx * scalars_per_token + scalar_offset;
@@ -490,6 +507,12 @@ void multi_layer_kv_transfer_templated(
       case GPUKVFormat::NL_X_NBBS_ONE_HS:
         LAUNCH_KERNEL_WITH_FORMAT(T, false, GPUKVFormat::NL_X_NBBS_ONE_HS);
         break;
+      case GPUKVFormat::NL_X_TWO_NB_NH_BS_HS:
+        LAUNCH_KERNEL_WITH_FORMAT(T, false, GPUKVFormat::NL_X_TWO_NB_NH_BS_HS);
+        break;
+      case GPUKVFormat::NL_X_NB_TWO_NH_BS_HS:
+        LAUNCH_KERNEL_WITH_FORMAT(T, false, GPUKVFormat::NL_X_NB_TWO_NH_BS_HS);
+        break;
       default:
         throw std::runtime_error("Unsupported GPUKVFormat");
     }
@@ -509,6 +532,12 @@ void multi_layer_kv_transfer_templated(
         break;
       case GPUKVFormat::NL_X_NBBS_ONE_HS:
         LAUNCH_KERNEL_WITH_FORMAT(T, true, GPUKVFormat::NL_X_NBBS_ONE_HS);
+        break;
+      case GPUKVFormat::NL_X_TWO_NB_NH_BS_HS:
+        LAUNCH_KERNEL_WITH_FORMAT(T, true, GPUKVFormat::NL_X_TWO_NB_NH_BS_HS);
+        break;
+      case GPUKVFormat::NL_X_NB_TWO_NH_BS_HS:
+        LAUNCH_KERNEL_WITH_FORMAT(T, true, GPUKVFormat::NL_X_NB_TWO_NH_BS_HS);
         break;
       default:
         throw std::runtime_error("Unsupported GPUKVFormat");

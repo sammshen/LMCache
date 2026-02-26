@@ -108,6 +108,26 @@ def legible_print_gpu_kv_format(gpu_kv_format: "lmc_ops.GPUKVFormat"):
         )
         logger.info("Currently used by:\n  - SGLang MLA")
 
+    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_TWO_NB_NH_BS_HS:
+        logger.info(
+            "GPU KV Format: "
+            "List[num_layers] of "
+            "[2, num_blocks, block_size, num_heads, head_size] (permuted)"
+        )
+        logger.info(
+            "Currently used by:\n  - vLLM non-MLA flash attention with permuted layout"
+        )
+
+    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_TWO_NH_BS_HS:
+        logger.info(
+            "GPU KV Format: "
+            "List[num_layers] of "
+            "[num_blocks, 2, block_size, num_heads, head_size] (permuted)"
+        )
+        logger.info(
+            "Currently used by:\n  - vLLM non-MLA flash infer with permuted layout"
+        )
+
     else:
         logger.warning(f"Unknown GPU KV Format: {gpu_kv_format}")
 
@@ -130,16 +150,85 @@ def _list_depth_tensor_dim(kv_caches: Any) -> Tuple[int, int]:
     return depth, kv_caches.ndim
 
 
+def is_permuted(kv_cache: torch.Tensor) -> tuple[int, int] | None:
+    """
+    Detect if KV cache uses permuted memory layout.
+
+    Args:
+        kv_cache: A tensor with shape (2, num_blocks, block_size, num_heads, head_size)
+                  or (num_blocks, 2, block_size, num_heads, head_size)
+
+    Returns:
+        None if contiguous (default layout)
+        (dim1, dim2) tuple indicating which dimensions are permuted in memory
+        For vLLM: returns (2, 3) meaning block_size and num_heads are swapped
+    """
+    if kv_cache.is_contiguous():
+        return None
+
+    # For shape: (2, num_blocks, block_size, num_heads, head_size)
+    # Contiguous: stride[2] > stride[3] (block_size has larger stride than heads)
+    # Permuted:   stride[3] > stride[2] (heads has larger stride than block_size)
+
+    if len(kv_cache.shape) >= 5:
+        if kv_cache.stride(2) > kv_cache.stride(3):
+            return None
+        else:
+            # Dimensions 2 and 3 are permuted (block_size and num_heads)
+            return (2, 3)
+
+    # Fallback: assume contiguous
+    return None
+
+
+def ensure_contiguous_for_transfer(
+    kv_caches: Any, permuted_dims: tuple[int, int] | None
+) -> Tuple[Any, bool]:
+    """
+    Ensure KV cache tensors are contiguous for kernel transfer.
+
+    Args:
+        kv_caches: List of KV cache tensors per layer or single tensor
+        permuted_dims: Tuple of permuted dimension indices, or None if contiguous
+
+    Returns:
+        Tuple of (contiguous_tensors, made_copy)
+        - contiguous_tensors: List of contiguous tensors or single contiguous tensor
+        - made_copy: True if copies were made, False if already contiguous
+    """
+    if permuted_dims is None:
+        # Already contiguous or assumed contiguous
+        return kv_caches, False
+
+    # Permuted layout: must make contiguous
+    logger.warning(
+        "Permuted layout detected (dims %s). Making contiguous copy of KV caches "
+        "for LMCache transfer. This will use additional GPU memory.",
+        permuted_dims,
+    )
+
+    # Handle both list and single tensor cases
+    if isinstance(kv_caches, list):
+        contiguous_caches = [kv.contiguous() for kv in kv_caches]
+    else:
+        contiguous_caches = kv_caches.contiguous()
+
+    return contiguous_caches, True
+
+
 def discover_gpu_kv_format(
     kv_caches: Any, serving_engine: EngineType
 ) -> "lmc_ops.GPUKVFormat":
     """
-    Discover the GPU KV Cache Format from the kv_caches.
+    Discover the GPU KV Cache Format and memory layout from the kv_caches.
 
     The logic is that "external" layers are lists and there is one tensor internally.
     We "unwrap" layers until we find the tensor.
 
     Please see csrc/mem_kernels.cuh for the naming schema of the GPUKVFormat.
+
+    Returns:
+        The detected GPUKVFormat
     """
     # list_depth: number of external wrapping lists
     # tensor_dim: number of dimensions of the internal tensor
@@ -158,6 +247,7 @@ def discover_gpu_kv_format(
     logger.info("GPU KV Cache Dimensions: %s", dims_str)
 
     detected_format = None
+    permuted_dims = None
 
     if serving_engine == EngineType.VLLM:
         if list_depth == 0:
@@ -165,12 +255,27 @@ def discover_gpu_kv_format(
             detected_format = lmc_ops.GPUKVFormat.NB_NL_TWO_BS_NH_HS
         elif list_depth == 1:
             if tensor_dim == 5:
+                permuted_dims = is_permuted(kv_caches[0])
+
+                # Assert for vLLM that if permuted, it's dims (2, 3)
+                if permuted_dims is not None:
+                    assert permuted_dims == (2, 3), (
+                        f"vLLM KV cache expected permutation of dims (2, 3) "
+                        f"but got {permuted_dims}"
+                    )
+
                 if kv_caches[0].shape[0] == 2:
                     # vllm non-MLA flash attention
-                    detected_format = lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS
+                    if permuted_dims is not None:
+                        detected_format = lmc_ops.GPUKVFormat.NL_X_TWO_NB_NH_BS_HS
+                    else:
+                        detected_format = lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS
                 elif kv_caches[0].shape[1] == 2:
                     # vllm non-MLA flash infer
-                    detected_format = lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS
+                    if permuted_dims is not None:
+                        detected_format = lmc_ops.GPUKVFormat.NL_X_NB_TWO_NH_BS_HS
+                    else:
+                        detected_format = lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS
             elif tensor_dim == 3:
                 # vllm MLA
                 detected_format = lmc_ops.GPUKVFormat.NL_X_NB_BS_HS
@@ -185,6 +290,8 @@ def discover_gpu_kv_format(
 
     if detected_format is not None:
         legible_print_gpu_kv_format(detected_format)
+        if permuted_dims is not None:
+            logger.info("Detected KV cache permuted dims: %s", permuted_dims)
         return detected_format
     else:
         raise ValueError(
@@ -199,9 +306,15 @@ def get_num_layers(kv_caches: Any, gpu_kv_format: "lmc_ops.GPUKVFormat") -> int:
     """
     if gpu_kv_format == lmc_ops.GPUKVFormat.NB_NL_TWO_BS_NH_HS:
         return kv_caches.shape[1]
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_NH_BS_HS,
+    ):
         return len(kv_caches)
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_NH_BS_HS,
+    ):
         return len(kv_caches)
     elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_BS_HS:
         return len(kv_caches)
@@ -219,9 +332,15 @@ def get_num_blocks(kv_caches: Any, gpu_kv_format: "lmc_ops.GPUKVFormat") -> int:
     """
     if gpu_kv_format == lmc_ops.GPUKVFormat.NB_NL_TWO_BS_NH_HS:
         return kv_caches.shape[0]
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_NH_BS_HS,
+    ):
         return kv_caches[0].shape[1]
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_NH_BS_HS,
+    ):
         return kv_caches[0].shape[0]
     elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_BS_HS:
         return kv_caches[0].shape[0]
@@ -239,9 +358,15 @@ def get_block_size(kv_caches: Any, gpu_kv_format: "lmc_ops.GPUKVFormat") -> int:
     """
     if gpu_kv_format == lmc_ops.GPUKVFormat.NB_NL_TWO_BS_NH_HS:
         return kv_caches.shape[3]
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_NH_BS_HS,
+    ):
         return kv_caches[0].shape[2]
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_NH_BS_HS,
+    ):
         return kv_caches[0].shape[2]
     elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_BS_HS:
         return kv_caches[0].shape[1]
@@ -260,10 +385,16 @@ def get_page_buffer_size(kv_caches: Any, gpu_kv_format: "lmc_ops.GPUKVFormat") -
     if gpu_kv_format == lmc_ops.GPUKVFormat.NB_NL_TWO_BS_NH_HS:
         # [num_blocks, num_layers, 2, block_size, num_heads, head_size]
         return kv_caches.shape[0] * kv_caches.shape[3]
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_NH_BS_HS,
+    ):
         # List[num_layers] of [2, num_blocks, block_size, num_heads, head_size]
         return kv_caches[0].shape[1] * kv_caches[0].shape[2]
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_NH_BS_HS,
+    ):
         # List[num_layers] of [num_blocks, 2, block_size, num_heads, head_size]
         return kv_caches[0].shape[0] * kv_caches[0].shape[2]
     elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_BS_HS:
@@ -285,9 +416,15 @@ def get_num_heads(kv_caches: Any, gpu_kv_format: "lmc_ops.GPUKVFormat") -> int:
     """
     if gpu_kv_format == lmc_ops.GPUKVFormat.NB_NL_TWO_BS_NH_HS:
         return kv_caches.shape[4]
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_NH_BS_HS,
+    ):
         return kv_caches[0].shape[3]
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_NH_BS_HS,
+    ):
         return kv_caches[0].shape[3]
     elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_BS_HS:
         raise ValueError(_ATTRIBUTE_NOT_EXIST_ERROR.format(format=gpu_kv_format))
@@ -305,9 +442,11 @@ def get_hidden_dim_size(kv_caches: Any, gpu_kv_format: "lmc_ops.GPUKVFormat") ->
     """
     if gpu_kv_format == lmc_ops.GPUKVFormat.NB_NL_TWO_BS_NH_HS:
         return kv_caches.shape[4] * kv_caches.shape[5]
-    elif (
-        gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS
-        or gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_NH_BS_HS,
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_NH_BS_HS,
     ):
         return kv_caches[0].shape[3] * kv_caches[0].shape[4]
     elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_BS_HS:
@@ -326,9 +465,15 @@ def get_head_size(kv_caches: Any, gpu_kv_format: "lmc_ops.GPUKVFormat") -> int:
     """
     if gpu_kv_format == lmc_ops.GPUKVFormat.NB_NL_TWO_BS_NH_HS:
         return kv_caches.shape[5]
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_NH_BS_HS,
+    ):
         return kv_caches[0].shape[4]
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_NH_BS_HS,
+    ):
         return kv_caches[0].shape[4]
     elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_BS_HS:
         return kv_caches[0].shape[2]
@@ -348,11 +493,17 @@ def get_tokens_per_layer(kv_caches: Any, gpu_kv_format: "lmc_ops.GPUKVFormat") -
     if gpu_kv_format == lmc_ops.GPUKVFormat.NB_NL_TWO_BS_NH_HS:
         # [num_blocks, num_layers, 2, block_size, num_heads, head_size]
         return kv_caches.shape[0] * kv_caches.shape[3]
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_NH_BS_HS,
+    ):
         # List[num_layers] of [2, num_blocks, block_size, num_heads, head_size]
         k_cache_shape = kv_caches[0][0].shape
         return k_cache_shape[0] * k_cache_shape[1]
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_NH_BS_HS,
+    ):
         # List[num_layers] of [num_blocks, 2, block_size, num_heads, head_size]
         k_cache_shape = kv_caches[0][:, 0].shape
         return k_cache_shape[0] * k_cache_shape[1]
@@ -382,11 +533,17 @@ def get_elements_per_layer(kv_caches: Any, gpu_kv_format: "lmc_ops.GPUKVFormat")
         num_heads = kv_caches.shape[4]
         head_size = kv_caches.shape[5]
         return num_blocks * 2 * block_size * num_heads * head_size
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_NH_BS_HS,
+    ):
         # List[num_layers] of [2, num_blocks, block_size, num_heads, head_size]
         k_cache_shape = kv_caches[0][0].shape
         return k_cache_shape.numel() * 2
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_NH_BS_HS,
+    ):
         # List[num_layers] of [num_blocks, 2, block_size, num_heads, head_size]
         k_cache_shape = kv_caches[0][:, 0].shape
         return k_cache_shape.numel() * 2
@@ -412,6 +569,8 @@ def assert_is_vllm_flash_attn_or_flash_infer(gpu_kv_format: "lmc_ops.GPUKVFormat
     assert (
         gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS
         or gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS
+        or gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_TWO_NB_NH_BS_HS
+        or gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_TWO_NH_BS_HS
     )
 
 
@@ -431,9 +590,15 @@ def get_dtype(kv_caches: Any, gpu_kv_format: "lmc_ops.GPUKVFormat") -> torch.dty
     """
     if gpu_kv_format == lmc_ops.GPUKVFormat.NB_NL_TWO_BS_NH_HS:
         return kv_caches.dtype
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_TWO_NB_NH_BS_HS,
+    ):
         return kv_caches[0].dtype
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS:
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_BS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_NB_TWO_NH_BS_HS,
+    ):
         return kv_caches[0].dtype
     elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_BS_HS:
         return kv_caches[0].dtype
