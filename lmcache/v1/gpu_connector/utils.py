@@ -70,12 +70,25 @@ class LayoutHints(TypedDict, total=False):
             reshape its 4-D pool tensor into the canonical 6-D form.
         tokens_per_block: Tokens per paged block. Used by TRT-LLM (same).
         head_dim: Per-head dimension. Used by TRT-LLM (same).
+        sglang_attention: SGLang attention variant.
+            ``"MHA"`` — k_pool and v_pool are sent over the wire as a
+            single flat list of length ``2 * num_layers``. The
+            normalizer splits this back at its midpoint into the nested
+            ``[K_layers, V_layers]`` form expected by format detection
+            (which lands on ``TWO_X_NL_X_NBBS_NH_HS``).
+            ``"MLA"`` — a single per-layer list (length ``num_layers``);
+            no reshape is needed (lands on ``NL_X_NBBS_ONE_HS``).
+        sglang_num_layers: Number of model layers. Required for the
+            ``"MHA"`` split — used to validate the flat list has length
+            ``2 * num_layers``.
     """
 
     kv_layout: Literal["NHD", "HND"]
     num_kv_heads: int
     tokens_per_block: int
     head_dim: int
+    sglang_attention: Literal["MHA", "MLA"]
+    sglang_num_layers: int
 
 
 def attempt_permute_to_contiguous_view(
@@ -371,6 +384,31 @@ def normalize_kv_and_discover_format(
     if layout_hints is None:
         layout_hints = {}
 
+    # SGLang's MP wire payload is a flat ``list[CudaIPCWrapper]`` —
+    # the multiprocess STORE/RETRIEVE protocol takes a single flat KVCache
+    # list. Split it back into the nested form the format detector
+    # expects (depth-2 for MHA, depth-1 for MLA) using the
+    # ``sglang_attention`` layout hint. In-process registrations skip
+    # this branch because they construct the nested structure directly
+    # and pass tensors (not :class:`CudaIPCWrapper`) here.
+    if serving_engine == EngineType.SGLANG:
+        attn = layout_hints.get("sglang_attention")
+        if attn == "MHA" and isinstance(kv_caches, list) and kv_caches:
+            inner = kv_caches[0]
+            if isinstance(inner, torch.Tensor):
+                num_layers_hint = layout_hints.get("sglang_num_layers")
+                if num_layers_hint is None or len(kv_caches) != 2 * num_layers_hint:
+                    raise ValueError(
+                        "SGLang MHA normalize requires layout_hints with "
+                        "sglang_num_layers and a flat list of length "
+                        "2 * num_layers; got "
+                        f"len(kv_caches)={len(kv_caches)}, "
+                        f"sglang_num_layers={num_layers_hint}"
+                    )
+                k_list = kv_caches[:num_layers_hint]
+                v_list = kv_caches[num_layers_hint:]
+                kv_caches = [k_list, v_list]
+
     # TRT-LLM hands us a 4-D pool tensor (possibly wrapped in a 1-element
     # list for adapter-side ergonomics). Reshape to the canonical 6-D
     # cross-layer form here so detection lands on the standard path.
@@ -519,9 +557,13 @@ def get_num_blocks(
     elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_BS_HS:
         return kv_caches[0].shape[0]
     elif gpu_kv_format == lmc_ops.GPUKVFormat.TWO_X_NL_X_NBBS_NH_HS:
-        raise ValueError(_ATTRIBUTE_NOT_EXIST_ERROR.format(format=gpu_kv_format))
+        # SGLang MHA: page_buffer_size is num_blocks under the
+        # block_size=1 convention used by the MP server's transfer
+        # kernel (one token per "block"). See get_block_size().
+        return kv_caches[0][0].shape[0]
     elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NBBS_ONE_HS:
-        raise ValueError(_ATTRIBUTE_NOT_EXIST_ERROR.format(format=gpu_kv_format))
+        # SGLang MLA: same block_size=1 convention.
+        return kv_caches[0].shape[0]
     else:
         raise ValueError(f"Unknown GPU KV Format: {gpu_kv_format}")
 
@@ -551,10 +593,16 @@ def get_block_size(
         return kv_caches[0].shape[3]
     elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NB_BS_HS:
         return kv_caches[0].shape[1]
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.TWO_X_NL_X_NBBS_NH_HS:
-        raise ValueError(_ATTRIBUTE_NOT_EXIST_ERROR.format(format=gpu_kv_format))
-    elif gpu_kv_format == lmc_ops.GPUKVFormat.NL_X_NBBS_ONE_HS:
-        raise ValueError(_ATTRIBUTE_NOT_EXIST_ERROR.format(format=gpu_kv_format))
+    elif gpu_kv_format in (
+        lmc_ops.GPUKVFormat.TWO_X_NL_X_NBBS_NH_HS,
+        lmc_ops.GPUKVFormat.NL_X_NBBS_ONE_HS,
+    ):
+        # SGLang formats expose page_buffer_size directly, with no
+        # nested per-block dimension. The MP transfer kernel treats
+        # each token slot as a single-token block, so the block_size
+        # exposed to GPUCacheContext is 1 — block_ids passed to STORE/
+        # RETRIEVE are then interpreted as token-level slot indices.
+        return 1
     else:
         raise ValueError(f"Unknown GPU KV Format: {gpu_kv_format}")
 

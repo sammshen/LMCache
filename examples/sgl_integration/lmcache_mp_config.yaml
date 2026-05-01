@@ -1,0 +1,17 @@
+# LMCache configuration for SGLang in **multi-process mode**.
+#
+# In MP mode the LMCache engine runs as a standalone ZMQ server, not in
+# the SGLang scheduler process. The values here control client-side
+# behavior only — chunk size, eviction, L1 size, etc. live on the
+# server (see ``run_server.sh``).
+#
+# Required by the in-process pipeline that
+# ``sglang/srt/mem_cache/storage/lmcache/lmc_radix_cache.py`` still
+# constructs at startup. Set ``server_url`` to the same endpoint passed
+# to ``run_server.sh``.
+
+# The LMCacheMPConnector reads ``server_url`` either from this config
+# file (``LMCACHE_SERVER_URL`` env var) or from the constructor kwarg.
+# Default if neither is set is ``ipc:///tmp/lmcache.sock``.
+chunk_size: 256
+local_cpu: False
