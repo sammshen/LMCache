@@ -285,7 +285,79 @@ This guide helps you get LMCache running end-to-end in a couple of minutes. Use 
       - **New tokens: 10**: Only 10 prompt tokens need prefill computation (40 prompt - 30 cached = 10).
       - **Stored 112 out of 140**: 24 tokens (3 full chunks) are already in LMCache and skipped. Of the remaining 116 tokens, 112 (14 full 8-token chunks) are stored.
 
-🎉 **You now have LMCache caching and reusing KV caches for both engines.**
+   .. tab-item:: TensorRT-LLM
+
+      **Install LMCache with TensorRT-LLM**
+
+      .. code-block:: bash
+
+         uv venv --python 3.12
+         source .venv/bin/activate
+         uv pip install lmcache "tensorrt-llm>=1.2.0"
+
+      Requires TensorRT-LLM 1.2.0 or newer (the ``KvCacheConnector`` ABC was
+      added in 1.2.0) and LMCache built with the ``c_ops`` extension. Verify
+      with ``python -c "import lmcache.c_ops"``.
+
+      **Configure LMCache via environment variables**
+
+      .. code-block:: bash
+
+         export PYTHONHASHSEED=0  # required -- chunk hashing depends on stable hash()
+         export LMCACHE_CHUNK_SIZE=256
+         export LMCACHE_LOCAL_CPU=True
+         export LMCACHE_MAX_LOCAL_CPU_SIZE=2.0  # GiB
+
+      **Run TensorRT-LLM with the LMCache connector**
+
+      .. code-block:: python
+
+         from tensorrt_llm import LLM, SamplingParams
+         from tensorrt_llm.llmapi.llm_args import (
+             KvCacheConfig, KvCacheConnectorConfig,
+         )
+
+         llm = LLM(
+             model="Qwen/Qwen2-1.5B-Instruct",
+             backend="pytorch",
+             kv_cache_config=KvCacheConfig(enable_block_reuse=True),
+             kv_connector_config=KvCacheConnectorConfig(connector="lmcache"),
+         )
+
+         sp = SamplingParams(max_tokens=64)
+         prompt = "Qwen3 is the latest generation of large language models in Qwen series, offering a comprehensive suite of dense and mixture-of-experts"
+
+         # First call -- cache is cold; KV is computed and stored.
+         out = llm.generate([prompt], sp)
+         print(out[0].outputs[0].text)
+
+         # Second call -- shared prefix is retrieved from LMCache.
+         out = llm.generate([prompt + " (MoE) models"], sp)
+         print(out[0].outputs[0].text)
+
+      **You should see LMCache logs like this** -- DEBUG-level lines on the
+      second ``generate`` call:
+
+      .. code-block:: text
+
+         LMCache TRT-LLM scheduler: req N ... lmcache_cached=256 new_matched=192
+         Retrieved 256 out of 382 required tokens
+
+      - ``lmcache_cached``: tokens LMCache had cached for this request.
+      - ``new_matched``: tokens LMCache supplied beyond what TRT-LLM had
+        already matched in its GPU pool. Both should be non-zero on a real
+        cache hit.
+
+      .. note::
+         TRT-LLM has its own GPU block reuse, so a matching second-request
+         output does not by itself prove LMCache contributed. Size TRT-LLM's
+         pool small (e.g. ``KvCacheConfig(max_tokens=512,
+         enable_block_reuse=True)``) and send three requests -- the original
+         long prompt, a different long prompt that fills the pool, then the
+         original again -- to force eviction and guarantee the third hit
+         comes from LMCache.
+
+🎉 **You now have LMCache caching and reusing KV caches across all three engines.**
 
 Next Steps
 ----------
