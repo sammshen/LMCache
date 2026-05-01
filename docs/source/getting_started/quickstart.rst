@@ -287,17 +287,52 @@ This guide helps you get LMCache running end-to-end in a couple of minutes. Use 
 
    .. tab-item:: TensorRT-LLM
 
-      **Install LMCache with TensorRT-LLM**
+      .. warning::
+         The TensorRT-LLM integration is **not yet available in stable PyPI
+         releases** of either project. Both must be installed from source
+         (specifically, from each project's ``main`` / ``dev`` branch):
+
+         - **LMCache** ``dev`` branch -- ``lmcache==0.4.4`` (the current
+           PyPI release) does not include ``lmcache.integration.tensorrt_llm``.
+         - **TensorRT-LLM** ``main`` branch -- the ``connector: "lmcache"``
+           preset registry was added by `PR #12626
+           <https://github.com/NVIDIA/TensorRT-LLM/pull/12626>`__ (merged
+           April 2026) and is not in TRT-LLM 1.2.0.
+
+         These instructions will be simplified to a plain ``pip install``
+         once both projects ship a release containing the integration.
+
+      **Install LMCache with TensorRT-LLM (from source)**
+
+      Run inside the NVIDIA PyTorch container so CUDA / MPI / NCCL versions
+      match what TensorRT-LLM expects:
 
       .. code-block:: bash
 
-         uv venv --python 3.12
-         source .venv/bin/activate
-         uv pip install lmcache "tensorrt-llm>=1.2.0"
+         docker run --gpus all -it --rm \
+             -v $PWD:/workspace -w /workspace \
+             nvcr.io/nvidia/pytorch:26.02-py3 bash
 
-      Requires TensorRT-LLM 1.2.0 or newer (the ``KvCacheConnector`` ABC was
-      added in 1.2.0) and LMCache built with the ``c_ops`` extension. Verify
-      with ``python -c "import lmcache.c_ops"``.
+         python -m venv /workspace/venv --system-site-packages
+         source /workspace/venv/bin/activate
+         pip install -U pip wheel setuptools
+
+         # TensorRT-LLM from main (heavy build -- can take 30+ minutes;
+         # if NVIDIA publishes a nightly wheel that postdates April 2026,
+         # `pip install --pre tensorrt-llm` is faster).
+         pip install "tensorrt-llm @ git+https://github.com/NVIDIA/TensorRT-LLM.git@main"
+
+         # LMCache from dev -- builds the c_ops CUDA extension during install.
+         pip install "lmcache @ git+https://github.com/LMCache/LMCache.git@dev"
+
+      Verify the install:
+
+      .. code-block:: bash
+
+         python -c "import lmcache.c_ops, lmcache.integration.tensorrt_llm"
+         python -c "from tensorrt_llm._torch.pyexecutor.connectors.registry \
+             import CONNECTOR_REGISTRY; print(list(CONNECTOR_REGISTRY))"
+         # Should list 'lmcache' and 'lmcache-mp'.
 
       **Configure LMCache via environment variables**
 
@@ -307,8 +342,24 @@ This guide helps you get LMCache running end-to-end in a couple of minutes. Use 
          export LMCACHE_CHUNK_SIZE=256
          export LMCACHE_LOCAL_CPU=True
          export LMCACHE_MAX_LOCAL_CPU_SIZE=2.0  # GiB
+         export LMCACHE_LOG_LEVEL=DEBUG       # so the connector logs below show up
 
       **Run TensorRT-LLM with the LMCache connector**
+
+      Save as ``trtllm_lmcache_demo.py`` and run with ``python trtllm_lmcache_demo.py``.
+
+      The ``if __name__ == "__main__":`` guard is **mandatory** -- TRT-LLM's
+      ``LLM`` constructor spawns MPI worker processes that re-import this
+      file, and an unguarded module body re-instantiates the engine and
+      aborts with ``MPI_ABORT``.
+
+      The 3-request shape (long prompt → different long prompt → original
+      long prompt) is also mandatory for proving LMCache contributed:
+      TRT-LLM has its own GPU block reuse, so a 2-request "shared prefix"
+      demo gets satisfied entirely from the GPU pool and never reaches
+      LMCache. Sizing ``max_tokens=512`` forces the second request to
+      evict the first request's blocks, so the third request must fall
+      through to LMCache.
 
       .. code-block:: python
 
@@ -317,45 +368,55 @@ This guide helps you get LMCache running end-to-end in a couple of minutes. Use 
              KvCacheConfig, KvCacheConnectorConfig,
          )
 
-         llm = LLM(
-             model="Qwen/Qwen2-1.5B-Instruct",
-             backend="pytorch",
-             kv_cache_config=KvCacheConfig(enable_block_reuse=True),
-             kv_connector_config=KvCacheConnectorConfig(connector="lmcache"),
-         )
+         LONG_PROMPT_A = "..."  # ~400 tokens of prose, e.g. an article
+         LONG_PROMPT_B = "..."  # ~400 tokens of *different* prose
 
-         sp = SamplingParams(max_tokens=64)
-         prompt = "Qwen3 is the latest generation of large language models in Qwen series, offering a comprehensive suite of dense and mixture-of-experts"
 
-         # First call -- cache is cold; KV is computed and stored.
-         out = llm.generate([prompt], sp)
-         print(out[0].outputs[0].text)
+         def main():
+             llm = LLM(
+                 model="Qwen/Qwen2-1.5B-Instruct",
+                 backend="pytorch",
+                 # Tiny GPU KV pool so prompt B forces eviction of prompt A.
+                 kv_cache_config=KvCacheConfig(
+                     enable_block_reuse=True, max_tokens=512,
+                 ),
+                 kv_connector_config=KvCacheConnectorConfig(connector="lmcache"),
+             )
+             sp = SamplingParams(max_tokens=32)
 
-         # Second call -- shared prefix is retrieved from LMCache.
-         out = llm.generate([prompt + " (MoE) models"], sp)
-         print(out[0].outputs[0].text)
+             # Request 1 -- cold cache, KV stored to LMCache.
+             llm.generate([LONG_PROMPT_A], sp)
+             # Request 2 -- different prompt, evicts request 1's GPU blocks.
+             llm.generate([LONG_PROMPT_B], sp)
+             # Request 3 -- original prompt, GPU blocks gone, must hit LMCache.
+             out = llm.generate([LONG_PROMPT_A], sp)
+             print(out[0].outputs[0].text)
 
-      **You should see LMCache logs like this** -- DEBUG-level lines on the
-      second ``generate`` call:
+
+         if __name__ == "__main__":
+             main()
+
+      **You should see LMCache logs like this** on the third ``generate``
+      call (DEBUG-level for the connector lines, INFO-level for the
+      ``Retrieved`` line):
 
       .. code-block:: text
 
-         LMCache TRT-LLM scheduler: req N ... lmcache_cached=256 new_matched=192
-         Retrieved 256 out of 382 required tokens
+         LMCache TRT-LLM scheduler: req 2050 ... trt_matched=64 lmcache_cached=256 new_matched=192
+         LMCache INFO: Retrieved 256 out of 382 required tokens (from 382 total tokens). size: 0.0068 gb, cost 0.5448 ms, throughput: 12.5468 GB/s
+         LMCache TRT-LLM worker: start_load_kv retrieve=0.786ms num_loads=1
 
-      - ``lmcache_cached``: tokens LMCache had cached for this request.
-      - ``new_matched``: tokens LMCache supplied beyond what TRT-LLM had
-        already matched in its GPU pool. Both should be non-zero on a real
-        cache hit.
+      - ``trt_matched``: tokens TRT-LLM matched in its own GPU block pool
+        (small after eviction).
+      - ``lmcache_cached``: tokens LMCache has cached for this request.
+      - ``new_matched``: tokens LMCache supplies *beyond* what TRT-LLM
+        already had. **Must be non-zero** to prove LMCache contributed.
+      - ``num_loads=1`` on ``start_load_kv``: confirms the worker actually
+        copied KV from LMCache into the GPU pool.
 
-      .. note::
-         TRT-LLM has its own GPU block reuse, so a matching second-request
-         output does not by itself prove LMCache contributed. Size TRT-LLM's
-         pool small (e.g. ``KvCacheConfig(max_tokens=512,
-         enable_block_reuse=True)``) and send three requests -- the original
-         long prompt, a different long prompt that fills the pool, then the
-         original again -- to force eviction and guarantee the third hit
-         comes from LMCache.
+      Output text matching between requests 1 and 3 alone is **not**
+      sufficient evidence -- TRT-LLM block reuse can produce identical
+      output on its own. Always check for the three log lines above.
 
 🎉 **You now have LMCache caching and reusing KV caches across all three engines.**
 
