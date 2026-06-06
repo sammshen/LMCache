@@ -142,6 +142,40 @@ def _compute_tensor_checksum(tensor: torch.Tensor) -> str:
     return hashlib.md5(tensor_bytes).hexdigest()
 
 
+def _mha_kv_dim(kv_tensor: torch.Tensor) -> int:
+    """Return the index of the K/V (size-2) axis in a 5D vLLM MHA KV cache.
+
+    vLLM stores a per-layer MHA KV cache in one of two physical layouts:
+
+    - K/V-major (legacy FlashAttention):
+      ``[2, num_blocks, block_size, num_heads, head_size]`` -- K/V at dim 0.
+    - num-blocks-major (FlashInfer, and FlashAttention since vLLM #42095):
+      ``[num_blocks, 2, block_size, num_heads, head_size]`` -- K/V at dim 1.
+
+    The K/V axis is the only one of the first two dims expected to have size 2;
+    ``num_blocks`` is the page count, which is far larger than 2 in any real
+    deployment. dim 1 is checked first so that the degenerate ``num_blocks == 2``
+    case resolves to the current num-blocks-major layout.
+
+    Args:
+        kv_tensor: A single layer's 5D MHA KV cache tensor.
+
+    Returns:
+        0 if the K/V axis is dim 0, 1 if it is dim 1.
+
+    Raises:
+        ValueError: If neither of the first two dims has size 2.
+    """
+    if kv_tensor.shape[1] == 2:
+        return 1
+    if kv_tensor.shape[0] == 2:
+        return 0
+    raise ValueError(
+        "Expected a 5D vLLM MHA KV cache with a size-2 K/V axis at dim 0 or "
+        f"dim 1, but got shape {tuple(kv_tensor.shape)}"
+    )
+
+
 def _slice_by_slot_dim(
     kv_at_slots: torch.Tensor, start_idx: int, end_idx: int
 ) -> torch.Tensor:
@@ -163,8 +197,11 @@ def _extract_kv_at_slots(
     """Extract KV data at specified slot positions from kv_tensor.
 
     Handles different kv_tensor formats:
-    - MHA (5D): [2, num_blocks, block_size, num_heads, head_size]
-    - MLA (3D): [num_blocks, block_size, head_size]
+    - MHA (5D), K/V-major:        [2, num_blocks, block_size, num_heads, head_size]
+    - MHA (5D), num-blocks-major: [num_blocks, 2, block_size, num_heads, head_size]
+    - MLA (3D):                   [num_blocks, block_size, head_size]
+
+    See _mha_kv_dim for why both 5D layouts must be handled.
 
     The slot_mapping is calculated as:
         slot_idx = block_id * block_size + block_offset
@@ -184,13 +221,17 @@ def _extract_kv_at_slots(
     ndim = kv_tensor.ndim
 
     if ndim == 5:
-        # MHA format: [2, num_blocks, block_size, num_heads, head_size]
-        # Reshape to [2, num_blocks * block_size, num_heads, head_size]
-        # then index by slot_tensor on dimension 1
-        kv_2d = 2
+        # MHA. The K/V axis is dim 0 (K/V-major) or dim 1 (num-blocks-major).
+        # Normalize to canonical [2, num_blocks * block_size, num_heads,
+        # head_size], then index by slot_tensor on dimension 1.
+        kv_dim = _mha_kv_dim(kv_tensor)
         num_heads = kv_tensor.shape[3]
         head_size = kv_tensor.shape[4]
-        kv_reshaped = kv_tensor.reshape(kv_2d, -1, num_heads, head_size)
+        if kv_dim == 1:
+            # [num_blocks, 2, ...] -> [2, num_blocks, ...]; reshape copies as
+            # needed since the permuted view is non-contiguous.
+            kv_tensor = kv_tensor.permute(1, 0, 2, 3, 4)
+        kv_reshaped = kv_tensor.reshape(2, -1, num_heads, head_size)
         return kv_reshaped[:, slot_tensor, :, :]
     elif ndim == 3:
         # MLA format: [num_blocks, block_size, head_size]
@@ -230,8 +271,9 @@ def compute_kvcache_checksums(
         slot_idx = block_id * block_size + block_offset
 
     For vLLM kv_cache formats:
-    - MHA (5D): [2, num_blocks, block_size, num_heads, head_size]
-    - MLA (3D): [num_blocks, block_size, head_size]
+    - MHA (5D), K/V-major:        [2, num_blocks, block_size, num_heads, head_size]
+    - MHA (5D), num-blocks-major: [num_blocks, 2, block_size, num_heads, head_size]
+    - MLA (3D):                   [num_blocks, block_size, head_size]
 
     Args:
         lmcache_adapter: The LMCache adapter containing kv_caches.
@@ -654,13 +696,18 @@ async def kvcache_check(
             first_kv_tensor = next(iter(lmcache_adapter.kv_caches.values()))
             # Calculate total slots: num_blocks * block_size
             # For different formats:
-            # - MHA (5D): [2, num_blocks, block_size, num_heads, head_size]
+            # - MHA (5D), K/V-major:        [2, num_blocks, block_size, NH, HS]
+            # - MHA (5D), num-blocks-major: [num_blocks, 2, block_size, NH, HS]
             # - MLA (3D): [num_blocks, block_size, head_size]
             # - 4D: [num_blocks, block_size, num_heads, head_size]
             ndim = first_kv_tensor.ndim
             if ndim == 5:
-                # MHA: [2, num_blocks, block_size, num_heads, head_size]
-                total_slots = first_kv_tensor.shape[1] * first_kv_tensor.shape[2]
+                # block_size is dim 2 in both 5D layouts; num_blocks is the
+                # non-K/V member of the first two dims (see _mha_kv_dim).
+                kv_dim = _mha_kv_dim(first_kv_tensor)
+                num_blocks = first_kv_tensor.shape[1 - kv_dim]
+                block_size = first_kv_tensor.shape[2]
+                total_slots = num_blocks * block_size
             elif ndim == 3:
                 # MLA: [num_blocks, block_size, head_size]
                 total_slots = first_kv_tensor.shape[0] * first_kv_tensor.shape[1]
