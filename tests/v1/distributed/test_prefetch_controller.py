@@ -1443,13 +1443,14 @@ class EvictionRacingL1Manager:
 class TestReservationFailures:
     @pytest.mark.parametrize(
         ("fetching_policy", "expected_rows"),
-        [("full", [[], []]), ("prefix", [[], []])],
+        [("full", [[0, 1, 2], []]), ("prefix", [[], []])],
     )
     def test_out_of_memory_row_is_dropped(self, fetching_policy, expected_rows):
-        """An L1 with room for one row's buffers but not two leaks nothing.
-        Under "prefix" the unreserved row empties the servable prefix; under
-        "full" a chunk counts only when every row loads, so the whole-column
-        trim releases the reserved row too."""
+        """An L1 with room for one row's buffers but not two loads what fits
+        and leaks nothing. Under "prefix" the row that could not be reserved
+        empties the servable prefix, so nothing is retained; under "full" the
+        reserved row is a hit and the dropped row is still reported found,
+        since capacity-dropped is not evicted."""
         layout = make_layout()
         object_bytes = 100 * 2 * 512 * 2
         l1_manager = DramL1Manager(
@@ -1471,6 +1472,12 @@ class TestReservationFailures:
             result = wait_for_result(ctrl, req_id, timeout=10.0)
 
             assert [row_bits(result, 0), row_bits(result, 1)] == expected_rows
+            if fetching_policy == "full":
+                assert result is not None and result.found_cells is not None
+                assert [row.get_indices_list() for row in result.found_cells] == [
+                    [0, 1, 2],
+                    [0, 1, 2],
+                ]
             held = [
                 rows[r].keys[c] for r, cols in enumerate(expected_rows) for c in cols
             ]
@@ -1481,47 +1488,6 @@ class TestReservationFailures:
             assert_l2_unlocked(adapter)
             if held:
                 l1_manager.finish_read(held)
-        finally:
-            ctrl.stop()
-            adapter.close()
-            l1_manager.close()
-
-    def test_out_of_memory_trims_to_whole_columns(self):
-        """Under ``"full"`` the shortfall keeps only columns
-        complete in every row. Batched reservation is all-or-nothing per
-        row, so a row that cannot fully reserve empties the whole-column
-        set; the released chunks stay loadable (found, no locks held)."""
-        layout = make_layout()
-        object_bytes = 100 * 2 * 512 * 2
-        l1_manager = DramL1Manager(
-            make_l1_config(size_in_bytes=object_bytes * 4 + 65536, use_lazy=False)
-        )
-        adapter = make_adapter()
-        rows = [
-            make_group([make_object_key(i, gid=0) for i in range(3)], gid=0),
-            make_group([make_object_key(i, gid=1) for i in range(3)], gid=1),
-        ]
-        all_keys = rows[0].keys + rows[1].keys
-        store_keys_in_l2(adapter, all_keys, layout)
-        ctrl = make_controller(l1_manager, [adapter])
-        ctrl.start()
-        try:
-            req_id = ctrl.submit_prefetch_request(
-                make_spec(rows, fetching_policy="full")
-            )
-            result = wait_for_result(ctrl, req_id, timeout=10.0)
-
-            assert [row_bits(result, 0), row_bits(result, 1)] == [[], []]
-            # Capacity-dropped columns are still reported found -- absent
-            # would mean evicted.
-            assert result is not None and result.found_cells is not None
-            assert [row.get_indices_list() for row in result.found_cells] == [
-                [0, 1, 2],
-                [0, 1, 2],
-            ]
-            assert_absent(l1_manager, all_keys)
-            assert l1_manager.get_staging_memory_usage() == 0
-            assert_l2_unlocked(adapter)
         finally:
             ctrl.stop()
             adapter.close()
